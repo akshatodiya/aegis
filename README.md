@@ -1,6 +1,7 @@
 # Aegis
 
-A firewall for AI agents that pay in USDC on Ethereum.
+A firewall for AI agents that pay in USDC — built on [Arc](https://arc.network),
+Circle's stablecoin L1 where USDC *is* the native gas token.
 
 An agent about to move money is one bad address away from a drain. Aegis sits in
 front of the payment, looks at *who is getting paid*, and answers one of three
@@ -10,24 +11,44 @@ things:
 - **BLOCK** - dangerous, stop it
 - **ASK_HUMAN** - not sure, get a person to look
 
-There are two halves to it. An off-chain analyzer does the deep read (it pulls
-the recipient's bytecode and, when something looks off, asks an LLM about it),
-and an on-chain contract, `AegisGuard`, enforces the same policy at settlement
-so a compromised agent can't just route around the checker.
+The catch with agents is that the checker is only as good as its ability to *not
+be skipped*. A prompt-injected agent will happily ignore an off-chain analyzer.
+So Aegis enforces at **the point where a payment becomes irreversible**, and that
+point is different for the two ways an agent spends:
 
-**Live overview:** https://anon1one.github.io/aegis/web/
+- **the treasury rail** - the agent pays through an on-chain contract,
+  `AegisGuard`. The policy runs *inside* the transfer, on-chain, atomically. A
+  hijacked agent that skips every off-chain check and calls the contract directly
+  still hits a wall: the payment reaches the chain and **reverts**.
+- **the x402 rail** - the agent pays a service over HTTP using x402
+  (EIP-3009 `transferWithAuthorization`). Nothing is broadcast - the agent
+  *signs*, and a facilitator settles. There's no transaction to revert, so the
+  enforcement point is **the signer**: Aegis wraps it, and a payment it doesn't
+  approve is never signed.
 
-## On Sepolia
+Same policy engine, two enforcement points. That's the honest framing - Aegis
+doesn't claim one magic on-chain gate; it claims that on *each* rail it sits at
+the last place a payment can still be stopped.
 
-Both contracts are verified, so you can read the source right on Etherscan.
+## Live on Arc
 
-| Contract | Address | What it is |
-|----------|---------|------------|
-| `AegisGuard` | [`0x022a8fdd780c72e5aa142e42c26f5343670bd6b2`](https://sepolia.etherscan.io/address/0x022a8fdd780c72e5aa142e42c26f5343670bd6b2#code) | the firewall contract - agents pay through it |
-| `HoneypotVault` | [`0xfe77c1e39923c3760ec8b20e64eb4639d1d8a00e`](https://sepolia.etherscan.io/address/0xfe77c1e39923c3760ec8b20e64eb4639d1d8a00e#code) | the demo villain (see below) |
+Everything below is deployed and exercised on Arc testnet
+(chain `5042002`, explorer [testnet.arcscan.app](https://testnet.arcscan.app)).
 
-A live PAY that settled through the guard:
-[10 USDC to a clean EOA](https://sepolia.etherscan.io/tx/0x6f55b66de421a3b687eca00a25a97ac9ecee43062975c5b19dad24145df5a9fe).
+| What | Address / tx | |
+|------|--------------|---|
+| `AegisGuard` | [`0xb95f…728d`](https://testnet.arcscan.app/address/0xb95f9c997235150d5f43b7c05897bb8e0173728d) | the firewall contract - agents pay through it (treasury approves it, daily cap 100 USDC) |
+| `HoneypotVault` | [`0x9a0d…de9c`](https://testnet.arcscan.app/address/0x9a0da68c0f9654bd7110e928f229b7c4c216de9c) | the demo villain (see below) |
+
+Two receipts a judge can open:
+
+- **a hijacked agent tries to drain the treasury and the chain says no** -
+  [reverted `guardedPay`](https://testnet.arcscan.app/tx/0xfe0434b5190fdda2d294296162903b13e0e78fb5717257b23e73160ceb5b8ade).
+  This is the whole thesis in one transaction: the agent skipped Aegis entirely
+  and called the contract directly, and the money still didn't move.
+- **a payment that *was* allowed through** -
+  [a guarded transfer that settled](https://testnet.arcscan.app/tx/0x6acc8c6c507c4f6ed155551d9e6bcf579facb49e017717199d8ac5f5b5337481)
+  (this one tops up the x402 float wallet - see the x402 rail below).
 
 ## How the decision is made
 
@@ -35,8 +56,8 @@ Three checks on the recipient, mapped onto on-chain state in the contract:
 
 | Lane | Where it lives | What it looks at |
 |------|----------------|------------------|
-| Bytecode | off-chain scan + on-chain code check | reads the recipient's EVM code and flags traps like `SELFDESTRUCT`, `DELEGATECALL`, `CREATE2`, `tx.origin` |
-| Reputation | on-chain `denylist` / `allowlist` | address lists (real mappings now, not a stub) |
+| Bytecode | off-chain scan + on-chain code check | reads the recipient's EVM code (live `eth_getCode` on Arc) and flags traps like `SELFDESTRUCT`, `DELEGATECALL`, `CREATE2`, `tx.origin` |
+| Reputation | on-chain `denylist` / `allowlist` | address lists (real mappings, not a stub) |
 | Behavior | on-chain daily spend cap | a rolling per-day limit, so splitting a payment doesn't dodge it |
 
 If the bytecode scan gets alarmed or is unsure, the off-chain layer hands the raw
@@ -52,7 +73,7 @@ big unknown payment   -> ASK_HUMAN
 all clear             -> PAY
 ```
 
-## The AegisGuard contract
+## The AegisGuard contract (the treasury rail)
 
 The money lives in a `treasury` address that approves the guard and nothing
 else. Agents are whitelisted to *trigger* payments through `guardedPay`, but they
@@ -62,6 +83,12 @@ never hold the funds, so a leaked agent key cannot move money outside the policy
 same transaction and there's no window for the recipient to change its code in
 between.
 
+On Arc, USDC is the native gas token *and* is exposed as a 6-decimal ERC-20 at
+`0x3600000000000000000000000000000000000000`. The guard moves that ERC-20 via
+`transferFrom`, so the contract is unchanged from the Ethereum version - it's
+pure `transferFrom`, no native-value handling, so pointing the token address at
+`0x3600…` is the entire port.
+
 A few properties worth calling out:
 
 - deny rules run before allow rules, so the denylist always wins.
@@ -70,20 +97,62 @@ A few properties worth calling out:
 - code recipients are default-REVIEW: a plain EOA passes, but a contract has to be
   vetted (allowlisted) before it can be auto-paid. Conservative on purpose.
 
+## The x402 rail
+
+x402 is the "pay-per-request over HTTP" scheme: a service replies `402 Payment
+Required` with the price and where to pay, the agent signs an EIP-3009
+`transferWithAuthorization`, and a facilitator settles it. The signature *is* the
+payment - it's off-mempool and irreversible the moment it's produced - so this
+rail never touches `AegisGuard`. Aegis enforces it by wrapping the signer:
+
+- **the fetch wrapper** is where decisions are made - it has the price, the
+  service registry, and the resource context. It catches bait-and-switch (a `402`
+  that demands more than the service posted), pins the USDC domain (a hostile
+  server can name any contract "USDC"; we don't let it choose what we sign), and
+  enforces a per-payment cap that escalates to a human.
+- **the signer** is where enforcement lives. It re-checks every authorization it
+  is asked to sign: the domain must be the canonical USDC, the chain must match,
+  the validity window must be short, and `aegisCheck(payTo)` must pass. It exposes
+  only `signTypedData` / `signMessage` for the payment surface - the raw
+  `sign` / `signTransaction` / `signAuthorization` methods are denied, so there's
+  no one-call bypass. Any non-payment typed-data on the USDC domain (an EIP-2612
+  `Permit`, say) is refused too.
+
+### JIT float - "an allowance, not a vault"
+
+The x402 signing wallet is a **separate** throwaway EOA that holds only a small
+float. It's refilled *only* through `guardedPay` (`ensureFloat` in `src/guard.js`,
+which refuses to set a float target above the guard's own daily limit). So the
+on-chain daily cap bounds the x402 rail too - the treasury is never directly
+exposed to a signature.
+
+Being honest about what that buys you: the daily cap is a **loss-rate** bound, not
+a total-loss bound. A compromised signer can drain the *current float* in one
+authorization before any refill (instant loss ≤ the float target); sustained, it
+leaks ≤ `dailyLimit` per day for as long as the compromise and the refills last.
+The refill line is the kill-switch - stop `ensureFloat` and rotate the wallet and
+total loss caps at whatever float is sitting there. The x402 wallet **signs, never
+sends** - the facilitator pays gas - which is what keeps the float from bleeding
+out as gas outside the cap.
+
+One more honest note: the on-chain lists (denylist / codehash / vetting) only see
+the *float refill*, not the merchant. Qualitative vetting of an x402 payee is done
+by the signer's `aegisCheck(payTo)`, not by the on-chain guard. The daily limit is
+the only guard property that reaches this rail.
+
 ## How the two layers connect
 
-The off-chain analyzer and the on-chain guard are not two separate opinions that
-happen to agree. They are wired together - but the two directions are not
-symmetric. When the analyzer (the opcode scan plus the LLM) is confident a
-recipient is malicious, it writes that verdict into the guard's own state so the
-contract enforces it from then on - even for an agent that never runs the
-off-chain check.
+The off-chain analyzer and the on-chain guard aren't two separate opinions that
+happen to agree - they're wired together, but not symmetrically. When the analyzer
+(the opcode scan plus the LLM) is confident a recipient is malicious, it writes
+that verdict into the guard's own state so the contract enforces it from then on -
+even for an agent that never runs the off-chain check.
 
-That is what `recordVerdictOnChain` in `src/guard.js` does. A contract recipient
+That's what `recordVerdictOnChain` in `src/guard.js` does. A contract recipient
 gets blocked by *codehash* (`setBlockedCodehash`), which kills every address
 running that exact bytecode, not just this one deployment. A plain wallet - or an
 EIP-7702 delegated EOA, which also carries code but shares it with everyone
-delegated to the same target - is denylisted by address instead. So the flow is:
+delegated to the same target - is denylisted by address instead.
 
 ```
 off-chain analyzer + LLM decide BLOCK
@@ -96,24 +165,23 @@ You can watch this happen: the first `npm run guard-bad` finds the honeypot at
 verdict flips to `BLOCK` in the same run. A second run just reports it is already
 blocked and sends no transaction.
 
-The *allow* direction is deliberately not automatic in the same way. The guard
-only trusts a contract it has been told about, so a first-time contract recipient
-reads as `REVIEW` even when the analyzer judged it safe. In that case the CLI
-(`vetThenPay`) offers to allowlist it, but never silently: it asks the owner to
-confirm, and with no interactive owner present it defaults to no. Only on an
-explicit yes does it call `setAllowedContract` and then pay. The reasoning is the
-asymmetry of mistakes - a wrong *block* just refuses a payment (the owner undoes
-it in one tx, so blocking auto-fires and fails closed), while a wrong *allow*
-would let money out, so it needs a human.
+The *allow* direction is deliberately not automatic. The guard only trusts a
+contract it has been told about, so a first-time contract recipient reads as
+`REVIEW` even when the analyzer judged it safe. The CLI (`vetThenPay`) offers to
+allowlist it, but never silently: it asks the owner to confirm, and with no
+interactive owner present it defaults to no. The reasoning is the asymmetry of
+mistakes - a wrong *block* just refuses a payment (undone in one tx, so blocking
+auto-fires and fails closed), while a wrong *allow* lets money out, so it needs a
+human.
 
-Two honest notes. The y/N is human-in-the-loop UX, not the security boundary -
+Two honest caveats. The y/N is human-in-the-loop UX, not the security boundary -
 the owner key sits in the same process as the agent, so the real boundary is
 `onlyOwner` plus the treasury only ever approving the guard. And allowlisting
 trusts the address's controller, not the exact bytecode: a metamorphic redeploy
 can't swap code under an allowlisted address (dead since EIP-6780), but an
 upgradeable proxy can change behavior after vetting. In production the owner would
-be a separate signer or multisig with a timelock; here it runs from one key so
-the demo is one command.
+be a separate signer or multisig with a timelock; here it runs from one key so the
+demo is one command.
 
 ## The demo villain
 
@@ -132,26 +200,20 @@ it HIGH, and the LLM confirms it as a rug/honeypot. Nothing gets sent.
 
 ```bash
 npm install
-cp .env.example .env      # fill in PRIVATE_KEY, RPC_URL, GOOD_RECIPIENT
+cp .env.example .env      # fill in PRIVATE_KEY, GOOD_RECIPIENT
 npm run balance           # check the wallet + USDC are set up
 ```
 
-Use a throwaway Sepolia test wallet. `.env` is gitignored, so keys never get
-committed.
+Use a throwaway wallet. On Arc there's no separate gas token - fund it with
+testnet USDC from [faucet.circle.com](https://faucet.circle.com) and that same
+USDC pays for gas *and* payments. `.env` is gitignored, so keys never get
+committed. The RPC is optional on Arc: leave `RPC_URL` blank and the client
+auto-rotates across the public gateways, falling over when one rate-limits.
 
-The plain (off-chain-only) demo:
+### The treasury rail
 
 ```bash
 npm run deploy-bad        # deploy HoneypotVault, paste its address into .env as BAD_RECIPIENT
-npm run good              # pay a normal wallet   -> PAY   -> real USDC goes out
-npm run bad               # pay the honeypot      -> BLOCK -> money saved
-npm run approve-good      # approve a plain wallet -> ASK_HUMAN (spenders are normally contracts)
-npm run approve-bad       # approve the honeypot   -> BLOCK
-```
-
-The on-chain guard demo:
-
-```bash
 npm run deploy-guard      # deploy AegisGuard, paste address into .env as AEGIS_GUARD
 npm run guard-setup       # treasury approves the guard + whitelists you as an agent
 npm run guard-good        # pays a clean EOA through the guard -> real transfer settles
@@ -160,23 +222,32 @@ npm run guard-bad         # tries the honeypot -> BLOCK off-chain, then records 
                           #   REVIEW -> BLOCK. run it again -> "already blocked".
 ```
 
-## Pointing it at a recipient
-
-The agent needs the recipient's address (and optionally an amount). Either pass it
-straight in:
+### The x402 rail
 
 ```bash
-node src/agent.js guard 0xRecipient... 10
+npm run x402-demo         # spins up a local mock merchant and walks the beats:
+                          #   0  refills the x402 float through the guard (real tx)
+                          #   1  a legit purchase -> payment AUTHORIZED (real EIP-3009)
+                          #   2a a bait-and-switch merchant (demands 5 USDC vs 0.10 posted) -> refused, unsigned
+                          #   2b a service with a malicious payTo -> refused, unsigned  (needs BAD_RECIPIENT)
+                          #   3  a purchase over the per-payment cap -> ASK_HUMAN (y/N)
 ```
 
-or set `GOOD_RECIPIENT` / `BAD_RECIPIENT` in `.env` and use `npm run guard-good` /
-`guard-bad`. A clean EOA gets paid; a first-time contract is held at REVIEW until
-you allowlist it (the CLI asks you first).
+### The closer
+
+```bash
+npm run drain             # a prompt-injected agent skips Aegis and calls guardedPay
+                          #   directly -> a real mined-and-REVERTED tx on arcscan
+```
+
+`npm run drain` broadcasts with a manual gas limit on purpose, so the reverting
+call actually gets mined instead of being caught by the wallet's pre-flight gas
+estimate - the point is the on-chain receipt.
 
 ## Integrating your own agent
 
-The whole integration is one swap - your agent calls the guard instead of moving
-USDC directly:
+**Treasury rail** - one swap; your agent calls the guard instead of moving USDC
+directly:
 
 ```js
 // before Aegis:
@@ -188,22 +259,23 @@ await guardedPay(recipient, amount)   // reverts on-chain unless the policy says
 ```
 
 Because the enforcement lives in the contract, that single call *is* the
-integration. Set it up once, as the owner:
+integration. Keep the USDC in the treasury (which approves only the guard),
+whitelist your agent's address, and the agent holds a key but never the funds.
 
-```bash
-npm run deploy-guard      # deploy AegisGuard, put its address in .env as AEGIS_GUARD
-npm run guard-setup       # treasury approves the guard + whitelists your agent
+**x402 rail** - wrap `fetch` once, and every paid request your agent makes is
+screened at the signature:
+
+```js
+import { createAegisX402Fetch } from './src/x402/fetch.js'
+const fetch = createAegisX402Fetch({ /* signer, catalog, maxPerPayment, askHuman */ })
+await fetch('https://some-service/endpoint')   // 402s are paid only if the policy allows
 ```
 
-Keep the USDC in the treasury, which approves only the guard, and whitelist your
-agent's address. The agent holds a key but never the funds - that's what makes the
-policy impossible to route around.
-
-If you want a verdict before paying, `assessOnChain(recipient, amount)` is a free
-read and `aegisCheck(recipient, amount)` runs the full off-chain analysis
-(bytecode + LLM). Depending on your stack you can import these directly (Node/TS),
-put them behind a small HTTP endpoint (other languages), or expose `guardedPay` as
-the "pay" tool your LLM agent is given in place of a raw transfer.
+If you just want a verdict before paying, `assessOnChain(recipient, amount)` is a
+free read and `aegisCheck(recipient, amount)` runs the full off-chain analysis
+(bytecode + LLM). Import them directly (Node/TS), put them behind a small HTTP
+endpoint (other languages), or expose `guardedPay` as the "pay" tool your LLM
+agent is given in place of a raw transfer.
 
 ## Tests
 
@@ -211,51 +283,54 @@ the "pay" tool your LLM agent is given in place of a raw transfer.
 npm test
 ```
 
-Spins up a local `anvil` node, deploys a mock USDC + the guard + the honeypot,
-and drives every policy path through viem (allowed pay, non-agent rejected,
-denylist, unvetted contract, codehash kill-switch, recording a block verdict
-`REVIEW -> BLOCK`, allowlisting a vetted contract `REVIEW -> PAY`, daily-limit,
-owner-only setters). No fork, no testnet, no keys.
+54 cases, no fork / no testnet / no keys. The guard suite spins up a local `anvil`
+node, deploys a mock USDC + the guard + the honeypot, and drives every policy path
+through viem (allowed pay, non-agent rejected, denylist, unvetted contract,
+codehash kill-switch, `REVIEW -> BLOCK`, allowlisting `REVIEW -> PAY`, daily-limit,
+JIT-float-draws-on-the-daily-limit, owner-only setters). The x402 suite runs the
+signer, the fetch wrapper, and a real localhost HTTP merchant offline (round-trip
+settles, `402` shape, replay, tampered signature, bait-and-switch, over-cap
+ASK_HUMAN, human-yes-does-not-bypass-the-signer).
 
-## Verifying the contract on Etherscan
+## Also runs on Sepolia
 
-```bash
-npm run verify-guard
-```
-
-With `ETHERSCAN_API_KEY` set it submits the Standard-JSON input over the API and
-polls until it's verified. Without a key it just writes the JSON + constructor
-args so you can upload them on Etherscan's Standard-JSON-Input page by hand (solc
-v0.8.28, optimizer on / 200 runs, MIT). Both contracts above were verified this
-way.
+The codebase is chain-agnostic (`CHAIN=arc` by default, `CHAIN=sepolia` to fall
+back). The original Ethereum Sepolia deployment is Etherscan-verified, so you can
+read the source there:
+[`AegisGuard`](https://sepolia.etherscan.io/address/0x022a8fdd780c72e5aa142e42c26f5343670bd6b2#code) ·
+[`HoneypotVault`](https://sepolia.etherscan.io/address/0xfe77c1e39923c3760ec8b20e64eb4639d1d8a00e#code).
+`npm run verify-guard` submits the Standard-JSON input to Etherscan (or writes it
+for manual upload); the same solc build (`0.8.28`, optimizer on / 200 runs, MIT)
+is what's deployed on Arc.
 
 ## Known limitations
 
-- The bytecode scan is a linear opcode walk, so it over-approximates: it tells
-  you a dangerous opcode is *present*, not that it's reachable. The LLM second
-  pass is there to sanity-check the alarms.
+- The bytecode scan is a linear opcode walk, so it over-approximates: it tells you
+  a dangerous opcode is *present*, not that it's reachable. The LLM second pass is
+  there to sanity-check the alarms.
 - `code.length > 0` is treated as "must be vetted". Post-Pectra an EIP-7702
   delegated EOA also carries code, so such an EOA gets REVIEW rather than PAY -
   conservative, but worth knowing.
-- The `_safeTransferFrom` path assumes a USDC-style token (returns a bool or no
-  data). It's a USDC guard by design, not a universal one.
+- The transfer path assumes a USDC-style token (returns a bool or no data). It's a
+  USDC guard by design, not a universal one.
 - Blocking by codehash catches exact-bytecode redeploys, but a metamorphic
-  redeploy or a clone that bakes different constructor immutables into its
-  runtime code will hash differently and slip past that one rule (it still hits
-  the default "unvetted contract" REVIEW).
-- The off-chain analyzer can write the on-chain blocklist directly, which is fine
-  for a demo but is a trust boundary: the owner key lives in the same process as
-  the agent, so the interactive allow-confirmation is human-in-the-loop UX, not a
+  redeploy or a clone that bakes different constructor immutables into its runtime
+  code will hash differently and slip past that one rule (it still hits the default
+  "unvetted contract" REVIEW).
+- On the x402 rail the daily cap is a loss-*rate* bound, not a total-loss bound,
+  and the on-chain lists don't see the merchant - qualitative vetting there is the
+  signer's `aegisCheck`. See the JIT-float section for the exact wording.
+- The off-chain analyzer can write the on-chain blocklist directly. That's fine for
+  a demo but is a trust boundary: the owner key lives in the same process as the
+  agent, so the interactive allow-confirmation is human-in-the-loop UX, not a
   security boundary. A real deployment should make the owner a separate signer or
-  multisig with a timelock. Blocking fails closed (a refused payment); allowing
-  needs a human yes.
+  multisig with a timelock. Blocking fails closed; allowing needs a human yes.
 - Allowlisting trusts the recipient address's controller, not the exact bytecode
-  vetted. A metamorphic redeploy can't swap code under an allowlisted address
-  (dead since EIP-6780), but an upgradeable proxy keeps its address and can change
+  vetted. A metamorphic redeploy can't swap code under an allowlisted address (dead
+  since EIP-6780), but an upgradeable proxy keeps its address and can change
   behavior after vetting - re-vet contracts you do not control.
-- Sepolia and USDC only.
 
 ## Built with
 
-Node.js, [viem](https://viem.sh), solc, Foundry (anvil for tests), Ethereum
-Sepolia.
+Node.js, [viem](https://viem.sh), solc `0.8.28`, Foundry (anvil for tests), and
+[Arc](https://arc.network) - Circle's stablecoin L1, where USDC is the gas.

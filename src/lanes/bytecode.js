@@ -21,6 +21,33 @@ const DANGER = {
   0x32: { name: 'ORIGIN',       score: 15, note: 'tx.origin - phishing / auth-bypass anti-pattern' },
 };
 
+// Circle's own infrastructure on Arc. this matters because the lane scores most
+// of it MEDIUM for DELEGATECALL - correctly, they really are proxies - and
+// "Aegis flags USDC" is a bad look that's also bad information.
+//
+// note what this does NOT do: it doesn't zero the score. an upgradeable
+// contract genuinely can change under you, and suppressing that would be hiding
+// a fact instead of explaining it. so we name the contract and say what the
+// trust actually rests on, and let a human weigh it. these are also NOT written
+// into the guard's on-chain allowedContract mapping - guardedPay sends a bare
+// transferFrom with no calldata, and none of these are a meaningful destination
+// for that. paying USDC *to* the USDC contract isn't a payment, it's a mistake,
+// and the unvetted-contract Review gate should keep catching it.
+//
+// arc also has proxies at 0x3600..0001/0002/0003 that aren't listed here: they
+// answer neither name() nor version(), so they can't be identified from chain
+// state alone, and an entry we can't justify is worse than no entry.
+const IMMUTABLE = 'deployed deterministically and not upgradeable';
+const CIRCLE_ADMIN = 'upgradeable by Circle, so its logic can change under you';
+const CIRCLE_SYSTEM = {
+  '0x3600000000000000000000000000000000000000': { name: 'USDC (ERC-20 interface)', trust: CIRCLE_ADMIN },
+  '0x000000000022d473030f116ddee9f6b43ac78ba3': { name: 'Permit2', trust: IMMUTABLE },
+  '0x8fe6b999dc680ccfdd5bf7eb0974218be2542daa': { name: 'TokenMessengerV2 (CCTP)', trust: CIRCLE_ADMIN },
+  '0x0077777d7eba4688bdef3e311b846f25870a19b9': { name: 'GatewayWallet', trust: CIRCLE_ADMIN },
+  '0x0022222abe238cc2c7bb1f21003f0a260052475b': { name: 'GatewayMinter', trust: CIRCLE_ADMIN },
+  '0x867650f5eae8df91445971f14d89fd84f0c9a9f8': { name: 'FxEscrow (StableFX)', trust: CIRCLE_ADMIN },
+};
+
 // PUSH1..PUSH32 (0x60-0x7f) carry 1-32 data bytes right after them.
 // have to skip those or we'd read pushed data as if it were opcodes.
 function isPush(op) {
@@ -219,5 +246,12 @@ export async function checkBytecode(recipient) {
     reason = `Contract bytecode contains: ${parts.join('; ')}.`;
   }
 
-  return { lane: 'bytecode', level, score, isContract: true, code, reason, hits };
+  // say what it is before saying what's in it - a known proxy reads very
+  // differently from an anonymous one, even at the same score.
+  const system = CIRCLE_SYSTEM[recipient.toLowerCase()] ?? null;
+  if (system) {
+    reason = `${system.name} - a Circle system contract, ${system.trust}. ${reason}`;
+  }
+
+  return { lane: 'bytecode', level, score, isContract: true, code, reason, hits, system };
 }

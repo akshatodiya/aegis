@@ -25,7 +25,7 @@
     "drain": "node scripts/injected-drain.js"
   },
   "keywords": [
-    "ethereum",
+    "arc",
     "usdc",
     "ai-agent",
     "security",

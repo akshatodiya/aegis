@@ -42,7 +42,13 @@ async function main() {
   const { walletClient, account } = requireWallet();
   const abi = compileGuard().abi;
 
-  const count = Math.max(2, Number(process.argv[2] || 2));
+  // Number('abc') is NaN and Math.max(2, NaN) is NaN, which would silently skip
+  // the deploy loop and die later on an undefined address. fail on the argument.
+  const arg = process.argv[2];
+  if (arg !== undefined && !Number.isInteger(Number(arg))) {
+    throw new Error(`clone count must be a whole number, got "${arg}".`);
+  }
+  const count = Math.max(2, Number(arg || 2));
   const assess = (to) => publicClient.readContract({
     address: guard, abi, functionName: 'assess', args: [to, 1_000_000n],
   });

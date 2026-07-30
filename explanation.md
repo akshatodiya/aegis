@@ -1,5 +1,12 @@
 # Aegis - how it actually works 
 
+> Written during the Sepolia build, kept because the walk-through of the moving
+> parts is still accurate. The live deployment is now Arc (chain 5042002), and
+> the x402 rail came later, so neither is covered here. For what is deployed and
+> what the trust boundaries are, read [README.md](README.md) and
+> [THREAT-MODEL.md](THREAT-MODEL.md) instead - where they disagree with this
+> file, they are right.
+
 ## The one-line idea
 
 AI agents are starting to hold wallets and pay in stablecoins. An agent has no
@@ -207,7 +214,7 @@ behind an owner yes (see "Block vs allow" above).
 - `src/guard.js` - talks to the contract: `assessOnChain`, `guardedPay`,
   `setupGuard`, the block bridge `recordVerdictOnChain`, the allow bridge
   `allowlistOnChain`, and the `needsVetting` state check.
-- `test/guard.test.mjs` - anvil-backed end-to-end tests (11 cases).
+- `test/guard.test.mjs` - anvil-backed end-to-end tests (12 cases).
 
 ## Pointing the agent at a recipient
 

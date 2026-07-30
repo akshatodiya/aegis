@@ -359,7 +359,7 @@
         <pre class="flow"><span class="k">off-chain analyzer + LLM decide</span> <span class="block">BLOCK</span>
     <span class="k">&rarr;</span> recordVerdictOnChain() writes the codehash via an owner setter
     <span class="k">&rarr;</span> AegisGuard.assess() now returns <span class="block">BLOCK</span> on its own</pre>
-        <p class="lead" style="margin-top:22px">On the first <span class="mono">guard-bad</span> run the honeypot sits at <span style="color:var(--amber)">REVIEW</span>, its codehash is recorded, and the verdict flips from <span style="color:var(--amber)">REVIEW</span> to <span style="color:var(--red)">BLOCK</span> in the same run. Blocking by codehash stops <b>every</b> address running that bytecode, not just one deployment.</p>
+        <p class="lead" style="margin-top:22px">On the first <span class="mono">guard-bad</span> run the honeypot sits at <span style="color:var(--amber)">REVIEW</span>, its codehash is recorded, and the verdict flips from <span style="color:var(--amber)">REVIEW</span> to <span style="color:var(--red)">BLOCK</span> in the same run. Blocking by codehash stops <b>every</b> address running that exact bytecode, not just the one deployment. Recompile it and the artifact changes, so it falls back to the unvetted-contract gate.</p>
       </div>
     </section>
 
@@ -383,7 +383,7 @@
         <ul class="pts green compact" style="margin-top:24px">
           <li>Chain <b>5042002</b>, explorer <b>testnet.arcscan.app</b>, USDC as the native gas token.</li>
           <li>The reverted drain and the settled payment above are <b>real receipts</b> a judge can open.</li>
-          <li><b>54 tests</b>, no fork and no keys: the guard, the signer, and a real localhost x402 merchant.</li>
+          <li><b>67 tests</b>, no fork and no keys: the guard, the signer, the bytecode lane, and a real localhost x402 merchant.</li>
         </ul>
       </div>
     </section>
@@ -432,15 +432,16 @@ const fetch =
             <ul class="pts green compact" style="margin-top:6px">
               <li>AegisGuard deployed and enforcing on Arc, with real reverted and settled receipts.</li>
               <li>Bytecode lane reading live Arc code; x402 signer, fetch wrapper and JIT float in place.</li>
-              <li>54 tests green, end to end.</li>
+              <li>67 tests, 55 of them needing no node at all.</li>
+              <li>A written threat model, including the designs that were attacked and dropped.</li>
             </ul>
           </div>
           <div class="rail">
             <h3>Next</h3>
             <p class="where">toward the final checkpoint</p>
             <ul class="pts compact" style="margin-top:6px">
-              <li>A gas-inclusive spend cap and a Circle system-contract allowlist in the bytecode lane.</li>
-              <li>A written threat model and a short recorded walkthrough.</li>
+              <li>Split the agent key from the treasury, so gas cannot burn the guarded balance.</li>
+              <li>A short recorded walkthrough.</li>
             </ul>
           </div>
         </div>

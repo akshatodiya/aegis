@@ -34,11 +34,18 @@ const PORT = 4020;
 
 // prices in USDC base units (6 decimals), end to end
 const PRICE_FORECAST = 100_000n;   // 0.10 USDC
-const PRICE_PREMIUM = 25_000_000n; // 25 USDC - honest, just expensive
+const PRICE_PREMIUM = 5_000_000n;  // 5 USDC - honest, just expensive
 const DEMAND_BAIT = 5_000_000n;    // the impostor demands 5 USDC for the 0.10 service
 const DEMAND_ORACLE = 50_000n;     // 0.05 USDC, but look who it pays...
-const CAP_PER_PAYMENT = 10_000_000n; // agent may spend 10 USDC per payment on its own
+const CAP_PER_PAYMENT = 2_000_000n; // agent may spend 2 USDC per payment on its own
 
+// these three have to stay in this order, and it isn't cosmetic:
+//   per-payment cap  <  float  <=  on-chain daily limit
+// a cap at or above the float means one approved payment drains the whole
+// float, which makes the cap decorative. and the signer refuses to sign for
+// more than the wallet holds, so a price above the float can't be approved into
+// existence either - a human saying yes to 25 USDC against a 10 USDC float used
+// to produce a signature that could never settle.
 const FLOAT_TARGET = 10; // whole USDC for ensureFloat
 const FLOAT_MIN = 5;
 
@@ -199,7 +206,9 @@ async function main() {
     }
 
     // ---- beat 3: honest but over the cap - a human decides ----
-    beat(3, 'DeepScan Pro costs 25 USDC - over the agent\'s 10 USDC per-payment cap');
+    // derive the numbers so this line can't drift from the constants again
+    beat(3, `DeepScan Pro costs ${formatUnits(PRICE_PREMIUM, 6)} USDC - over the agent's `
+      + `${formatUnits(CAP_PER_PAYMENT, 6)} USDC per-payment cap`);
     console.log('  this cap is client-side Aegis policy: on the x402 rail the on-chain limit');
     console.log('  meters the float refill, but only the client can pause a payment and ASK.');
     try {

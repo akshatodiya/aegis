@@ -100,6 +100,15 @@ async function assertPaymentAllowed({ domain, message }, { usdc, chainId, maxTtl
       `authorization validBefore ${auth.validBefore} is outside the allowed window (now ${now}, cap ${maxTtl}s).`,
     );
   }
+  // validAfter matters too: an authorization that only becomes valid later is
+  // one we're signing blind, since the policy we checked it against is today's.
+  // our own caller always backdates it, but this signer is the chokepoint - it
+  // has to hold for callers that aren't ours.
+  if (auth.validAfter >= auth.validBefore) {
+    throw new AegisPaymentRefused(
+      `authorization validAfter ${auth.validAfter} is not before validBefore ${auth.validBefore}.`,
+    );
+  }
   if (auth.value <= 0n) {
     throw new AegisPaymentRefused('authorization has a non-positive value.');
   }

@@ -4,7 +4,7 @@
 // wiring: treasury approves the guard for USDC and the owner whitelists the
 // caller as an agent.
 import { parseUnits, formatUnits, erc20Abi, keccak256 } from 'viem';
-import { publicClient, requireWallet, addresses, assertAddress, txUrl } from './config.js';
+import { publicClient, requireWallet, addresses, assertAddress, txUrl, account } from './config.js';
 import { compileGuard } from './compile.js';
 
 const VERDICT = ['PAY', 'BLOCK', 'REVIEW']; // matches enum Verdict order
@@ -170,6 +170,63 @@ export async function ensureFloat(wallet, { target, min } = {}) {
   const pay = await guardedPay(wallet, amount); // metered by the daily cap
   // `target` is the intended post-refill float, not a re-read balance.
   return { toppedUp: true, target: targetUnits, funded: plan.amount, amount, pay };
+}
+
+// ---- the agent's gas float ----
+//
+// on Arc gas IS USDC, so the agent's native balance is real money the guard
+// never sees. and it cannot see it: the EVM deducts gas from the sender before
+// guardedPay's first opcode runs, so there is no point in the call where the
+// contract could refuse. we looked at counting gas inside the daily cap and
+// dropped it for two reasons - a revert doesn't refund gas already burnt (so
+// the one case worth catching is the one that records nothing), and metering an
+// agent-chosen tx.gasprice into a shared cap would let one agent lock every
+// other agent out of the day's budget for free.
+//
+// what IS enforceable is how much is in the wallet to burn. so the agent's gas
+// balance gets the same treatment as the x402 float: keep it thin, top it up on
+// a schedule, and treat a fat balance as exposure rather than convenience. an
+// agent holding 0.05 USDC of gas cannot burn 50 USDC of gas however it's
+// hijacked.
+//
+// deliberately advisory, not blocking: a native top-up isn't an ERC-20
+// transferFrom, so unlike ensureFloat it can't be routed through guardedPay and
+// metered by the cap. saying otherwise would be the same overstatement we
+// avoided by not counting gas on-chain.
+
+// pure decision, 18-decimal native units (Arc's gas token). same shape as
+// floatPlan, plus the direction that actually matters for a firewall: how far
+// ABOVE the intended float the wallet is sitting, which is the loss ceiling if
+// the key leaks.
+export function gasFloatPlan({ balance, target, min }) {
+  if (min > target) throw new Error(`gas float min (${min}) cannot exceed target (${target})`);
+  if (balance > target) return { topUp: false, amount: 0n, exposure: balance - target };
+  if (balance >= min) return { topUp: false, amount: 0n, exposure: 0n };
+  return { topUp: true, amount: target - balance, exposure: 0n };
+}
+
+// read the agent's native (gas) balance and say where it stands against the
+// intended float. `target`/`min` are decimal USDC, e.g. 0.05.
+export async function checkGasFloat(who, { target, min } = {}) {
+  const wallet = assertAddress('agent address', who ?? account?.address);
+  if (target == null) throw new Error('checkGasFloat needs a target float amount');
+  const targetUnits = parseUnits(String(target), 18); // native USDC is 18-dec
+  const minUnits = parseUnits(String(min ?? target), 18);
+
+  const balance = await publicClient.getBalance({ address: wallet });
+  const plan = gasFloatPlan({ balance, target: targetUnits, min: minUnits });
+  const held = formatUnits(balance, 18);
+
+  if (plan.exposure > 0n) {
+    console.log(
+      `  !! agent gas balance ${held} USDC is above the ${target} float ` +
+      `(${formatUnits(plan.exposure, 18)} over). that surplus is burnable by a hijacked key ` +
+      `and no on-chain rule can stop it - sweep it back to the treasury.`,
+    );
+  } else if (plan.topUp) {
+    console.log(`  -> agent gas balance ${held} USDC is below ${min ?? target}; top up to ${target} to keep paying gas.`);
+  }
+  return { ...plan, balance, wallet };
 }
 
 // the bridge between the two layers. once the off-chain analyzer (opcode scan +

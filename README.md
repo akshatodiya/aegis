@@ -345,6 +345,33 @@ free read and `aegisCheck(recipient, amount)` runs the full off-chain analysis
 endpoint (other languages), or expose `guardedPay` as the "pay" tool your LLM
 agent is given in place of a raw transfer.
 
+### On Circle's agent-stack-starter-kits
+
+We looked at whether Aegis drops into Circle's own kits, and the honest answer is
+half of it does. `packages/circle-tools` pays a 402 through `payService`, which
+shells out to the `circle` CLI (`execFileSync`) with a `--address`, and
+`wallet.ts` manages Circle **Smart Contract Accounts** (`deployWallet`,
+`isWalletDeployed`). There is no viem account in that process, no local private
+key, and no `signTypedData` to wrap.
+
+That matters because of where Aegis stands on this rail. Aegis screens in the
+fetch wrapper and *enforces in the signer* - the signer is the chokepoint
+precisely because it holds the key and can refuse. Against a hosted wallet the
+key is not in the process, so:
+
+- **The decision half ports cleanly.** Run `aegisCheck(payTo, amount)` plus the
+  price, registry and domain checks before calling `payService`. Useful, and it
+  is what most integrations would ship.
+- **The enforcement half does not port at all.** Nothing stops a compromised
+  agent from calling `payService` directly and skipping the check, because the
+  refusal would have to happen inside Circle's CLI.
+
+So with a Circle hosted wallet, Aegis is advisory. With a local key it is
+binding. That is not a knock on their kits - it is the same distinction this
+project makes about its own two rails, and the reason the x402 work here wraps a
+signer rather than a fetch alone. We would rather state the limit than claim a
+drop-in that quietly loses its teeth.
+
 ## Tests
 
 ```bash

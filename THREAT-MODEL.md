@@ -143,11 +143,25 @@ directions of imprecision, and they are not symmetric:
   rather than pushed as a constant can still hide code from the reachability
   check described below. That is a known gap, not a solved problem.
 
-**6. Two of the three lanes are mock.** Only the bytecode lane is real (live
-`eth_getCode` plus an opcode walk). Reputation and behavior are mock heuristics
-off-chain, though they are backed by real on-chain state: the denylist,
-allowlist, codehash blocks and the rolling cap are all genuine contract storage.
-No reputation database exists and none is claimed.
+**6. One of the three lanes is still a mock, and it is worth being exact about
+which.** These used to be described as a pair, which blurred two different
+things:
+
+- *Bytecode* is real: live `eth_getCode` plus an opcode walk, on Arc.
+- *Behavior* is now real too. It reads the guard's own `Paid` events and answers
+  how many times this recipient has actually been paid. It returns three states,
+  not two - never, N times, and "could not read" - and the third is never
+  reported as the first. Its honest limit is recency, not truthfulness: the
+  public Arc gateways reject wide `getLogs` ranges, so it scans a 50k-block
+  window and says "recent history" rather than "never". Full history needs an
+  indexer; there isn't one, and none is implied.
+- *Reputation* is still entirely a mock: two hardcoded maps that nothing writes
+  to. No reputation database exists and none is claimed.
+
+Do not confuse the reputation lane with the guard's own on-chain lists. The
+denylist, allowlist, codehash blocks and daily cap are genuine contract storage
+and are enforced inside `guardedPay` - that is the contract doing its job, not
+the off-chain lane having data behind it.
 
 **7. Naming a Circle contract is not vouching for it.** See below.
 

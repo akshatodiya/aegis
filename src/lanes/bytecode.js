@@ -92,11 +92,22 @@ function jumpsInto(b, start) {
     const op = b[i];
     if (!isPush(op)) continue;
     const n = pushLen(op);
-    if (n <= 4) {
-      let v = 0;
-      for (let k = 1; k <= n; k++) v = v * 256 + (b[i + k] ?? 0);
-      if (v >= start && v < b.length && b[v] === 0x5b) return true;
+
+    // read the immediate at whatever width it is. a PUSH5 carrying a
+    // zero-padded offset is exactly as good a jump as a PUSH1, so only
+    // inspecting narrow pushes isn't a check, it's a guess - and it's the
+    // guess an attacker makes first. runtime code caps at 24576 bytes, so for
+    // a value that could actually be an offset every byte above the low four
+    // has to be zero; a non-zero one just means "not an offset".
+    let high = 0;
+    let v = 0;
+    for (let k = 1; k <= n; k++) {
+      const byte = b[i + k] ?? 0;
+      if (k <= n - 4) high |= byte;
+      else v = v * 256 + byte;
     }
+    if (high === 0 && v >= start && v < b.length && b[v] === 0x5b) return true;
+
     i += n; // skip the immediate
   }
   return false;

@@ -91,6 +91,50 @@ test('valid cbor the code jumps into is flagged as hidden code', () => {
   assert.equal(hidden, true, 'a jump into the blob means it is code, not a hash');
 });
 
+// the same hidden-code trick, but reaching the blob with every push width
+// there is. the first version of this check only looked at PUSH1-PUSH4, so a
+// PUSH5 carrying the identical zero-padded target walked straight through it.
+//
+//   idx 0      PUSHn <target, big-endian, zero-padded to n bytes>
+//   idx 1+n    JUMP
+//   idx 2+n    the same well-formed CBOR blob, JUMPDEST at +4, SELFDESTRUCT at +5
+function craftedWithPush(n) {
+  const start = n + 2;
+  const target = start + 4; // the JUMPDEST inside the blob
+  // big-endian, zero-padded to n bytes. built by division, not by `>>`, which
+  // is a 32-bit operation in JS and silently wraps once n gets past 4.
+  const imm = new Array(n).fill(0);
+  for (let k = n - 1, t = target; k >= 0; k--, t = Math.floor(t / 256)) imm[k] = t & 0xff;
+  return hex([
+    0x60 + n - 1, ...imm, 0x56,
+    0xa2, 0x61, 0x61, 0x43, 0x5b, 0xff, 0x00, 0x61, 0x62, 0x43, 0x00, 0x00, 0x00,
+    0x00, 0x0d,
+  ]);
+}
+
+test('the blob is caught however wide the push that reaches it', () => {
+  for (let n = 1; n <= 32; n++) {
+    const { body, hidden } = stripMetadata(craftedWithPush(n));
+    assert.equal(hidden, true, `PUSH${n} reached the blob without being flagged`);
+    assert.equal(body, craftedWithPush(n), `PUSH${n} still got its blob trimmed away`);
+  }
+});
+
+test('a push whose high bytes rule out an offset is not treated as a jump', () => {
+  // PUSH5 0xff00000000 is a constant, not a code offset - a contract that big
+  // cannot exist. flagging it would be a false positive on honest code. the
+  // blob here is deliberately valid CBOR, so this really does test the
+  // high-byte rejection and not just a malformed trailer.
+  const code = hex([
+    0x64, 0xff, 0x00, 0x00, 0x00, 0x00, 0x56,
+    0xa2, 0x61, 0x61, 0x43, 0x5b, 0xff, 0x00, 0x61, 0x62, 0x43, 0x00, 0x00, 0x00,
+    0x00, 0x0d,
+  ]);
+  const { body, hidden } = stripMetadata(code);
+  assert.equal(hidden, false);
+  assert.notEqual(body, code, 'a valid blob nothing jumps into should still be trimmed');
+});
+
 test('a blob length pointing outside the code is ignored', () => {
   const silly = hex([0x00, 0x00, 0xff, 0xff]); // declares 65535 bytes of metadata
   const { body, hidden } = stripMetadata(silly);

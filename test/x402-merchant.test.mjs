@@ -27,6 +27,13 @@ before(async () => {
     services: [
       { route: '/data', name: 'Test API', payTo: PAYTO, demand: PRICE, product: { answer: 42 } },
       { route: '/bait', name: 'Test API', payTo: PAYTO, demand: PRICE * 50n, product: { answer: 42 } },
+      // a service that computes its product from the request, the way the paid
+      // Aegis screening does, rather than returning a fixture
+      { route: '/computed', name: 'Test API', payTo: PAYTO, demand: PRICE,
+        product: (url) => ({ echo: url.searchParams.get('q'), answer: 42 }) },
+      // and one that fails to produce it, to pin the nonce behaviour
+      { route: '/broken', name: 'Test API', payTo: PAYTO, demand: PRICE,
+        product: () => { throw new Error('the oracle is down'); } },
     ],
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -146,4 +153,29 @@ test('the client refuses the bait route before any signature exists', async () =
   const aegisFetch = client();
   await assert.rejects(() => aegisFetch(`${base}/bait`),
     (e) => e instanceof AegisPaymentRefused && /bait-and-switch/.test(e.reason));
+});
+
+test('a service can compute its product from the request', async () => {
+  // this is what lets Aegis sell a screening: the payload is derived from the
+  // paid request, not a fixture chosen at startup.
+  const res = await client()(`${base}/computed?q=hello`);
+  assert.equal(res.status, 200);
+  assert.deepEqual((await res.json()).data, { echo: 'hello', answer: 42 });
+});
+
+test('a service that fails to produce its result does not burn the nonce', async () => {
+  // the buyer paid and got nothing, but that failure is the seller's fault, so
+  // the authorization must survive for a retry rather than being spent on a 502.
+  const recorded = [];
+  const aegisFetch = client({ recorded, intercept: true });
+  assert.equal((await aegisFetch(`${base}/broken`)).status, 200); // captured, not delivered
+
+  const send = () => fetch(`${base}/broken`, { headers: { 'PAYMENT-SIGNATURE': recorded[0] } });
+  const first = await send();
+  assert.equal(first.status, 502, 'the seller failed to produce the goods');
+
+  // the same authorization again must NOT come back as a replay
+  const second = await send();
+  assert.equal(second.status, 502);
+  assert.notEqual(second.status, 409, 'the nonce was burned on a failure that was ours');
 });

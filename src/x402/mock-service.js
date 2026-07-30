@@ -131,10 +131,23 @@ export function createMockMerchant({ usdc, chainId, domain, services, now = () =
       return json(res, 401, { error: 'signature does not verify against the authorization' });
     }
 
+    // `product` may be a value or a function of the request, so a service can
+    // actually compute something for the money rather than return a fixture.
+    // produced BEFORE the nonce is burned: if we fail to make the goods that is
+    // our fault, and the buyer should keep a usable authorization.
+    let data;
+    try {
+      data = typeof svc.product === 'function'
+        ? await svc.product(new URL(req.url, 'http://localhost'))
+        : svc.product;
+    } catch (err) {
+      return json(res, 502, { error: `service failed to produce its result: ${err.shortMessage || err.message}` });
+    }
+
     usedNonces.add(nonceKey);
     log(`verified EIP-3009 authorization from ${auth.from} for ${auth.value} base units - serving "${svc.name}"`);
     return json(res, 200, {
-      data: svc.product,
+      data,
       payment: {
         from: auth.from,
         amount: auth.value.toString(),

@@ -1,7 +1,7 @@
 {
   "name": "aegis",
   "version": "1.0.0",
-  "description": "A firewall for AI agents paying USDC on Ethereum. Checks the recipient's bytecode before a transfer or approval goes through and answers PAY, BLOCK or ASK_HUMAN.",
+  "description": "A firewall for AI agents paying USDC on Arc. Screens the recipient before a guarded transfer or an x402 payment is signed, and answers PAY, BLOCK or ASK_HUMAN.",
   "type": "module",
   "scripts": {
     "balance": "node scripts/check-balance.js",
@@ -28,7 +28,7 @@
     "bytecode"
   ],
   "author": "Akshat Odiya",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
     "dotenv": "^17.4.2",
     "viem": "^2.54.6"

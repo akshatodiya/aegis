@@ -85,8 +85,8 @@ treasury holds the funds and approves the guard; the agent is a different key
 holding only enough to pay gas:
 
 ```
-treasury  0xa410..9fD2   86.00 USDC, signs nothing after its one approve
-agent     0x3C00..9Eca6   2.96 USDC, pays gas, calls guardedPay
+treasury   86.00 USDC, signs nothing after its one approve
+agent       2.96 USDC, pays gas, calls guardedPay
 ```
 
 The hot key a prompt injection can actually reach now holds about 3% of the

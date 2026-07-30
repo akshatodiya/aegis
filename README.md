@@ -1,6 +1,6 @@
 # Aegis
 
-A firewall for AI agents that pay in USDC — built on [Arc](https://arc.network),
+A firewall for AI agents that pay in USDC, built on [Arc](https://arc.network),
 Circle's stablecoin L1 where USDC *is* the native gas token.
 
 An agent about to move money is one bad address away from a drain. Aegis sits in
@@ -290,7 +290,8 @@ agent is given in place of a raw transfer.
 npm test
 ```
 
-65 cases, no fork / no testnet / no keys. The guard suite spins up a local `anvil`
+67 cases, no fork / no testnet / no keys. 55 of them need no node at all; only the
+12-case guard suite requires `anvil` on your PATH. The guard suite spins up a local `anvil`
 node, deploys a mock USDC + the guard + the honeypot, and drives every policy path
 through viem (allowed pay, non-agent rejected, denylist, unvetted contract,
 codehash kill-switch, `REVIEW -> BLOCK`, allowlisting `REVIEW -> PAY`, daily-limit,
@@ -323,10 +324,12 @@ is what's deployed on Arc.
   conservative, but worth knowing.
 - The transfer path assumes a USDC-style token (returns a bool or no data). It's a
   USDC guard by design, not a universal one.
-- Blocking by codehash catches exact-bytecode redeploys, but a metamorphic
-  redeploy or a clone that bakes different constructor immutables into its runtime
-  code will hash differently and slip past that one rule (it still hits the default
-  "unvetted contract" REVIEW).
+- Blocking by codehash matches the exact runtime artifact, solc metadata trailer
+  and all. That kills byte-identical redeploys, but not a *family*: recompiling the
+  same source with a different solc patch version (or one extra comment) changes
+  the trailer and so the hash. A metamorphic redeploy, or a clone baking different
+  constructor immutables into its runtime code, escapes for the same reason.
+  Everything that escapes still hits the default "unvetted contract" REVIEW.
 - On the x402 rail the daily cap is a loss-*rate* bound, not a total-loss bound,
   and the on-chain lists don't see the merchant - qualitative vetting there is the
   signer's `aegisCheck`. See the JIT-float section for the exact wording.

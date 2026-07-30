@@ -44,8 +44,13 @@ If the attacker gets that key directly, there is no second line.
 
 - A hijacked agent calling `guardedPay` directly against a flagged recipient.
   Reverts on-chain, verifiable on arcscan.
-- Denylisted recipients, and whole bytecode families at once via the blocked
-  codehash kill switch, so N identical honeypot deployments die on one write.
+- Denylisted recipients, and byte-identical redeploys in one write via the
+  blocked codehash kill switch. Be precise about its reach: it matches the exact
+  runtime artifact, solc metadata trailer included. Recompiling the same source
+  with a different compiler patch version, or with one comment added, changes
+  that trailer and therefore the hash. So it kills copies, not families, and the
+  bar for escaping it is lower than "write a new contract". Anything that
+  escapes still lands on the unvetted-contract Review gate.
 - Contract recipients that were never vetted. They return Review, not Pay -
   including EIP-7702 delegated EOAs, which carry code and are treated as
   must-be-vetted rather than as plain wallets.
@@ -63,27 +68,41 @@ If the attacker gets that key directly, there is no second line.
 Stated plainly, because a firewall that overstates its coverage is worse than
 one that admits its edges.
 
-**1. Gas. This is the big one on Arc.** Gas is USDC, and the EVM deducts it from
-the sender before `guardedPay`'s first opcode runs. There is no point in the
-call where the contract could refuse, and no way to claw it back afterwards - a
-revert does not refund gas already burnt. So the agent's native balance is
-spendable money the guard structurally cannot reach.
+**1. Gas, and the fact that on Arc it is the same money.** Gas is USDC, and the
+EVM deducts it from the sender before `guardedPay`'s first opcode runs. There is
+no point in the call where the contract could refuse, and no way to claw it back
+afterwards, because a revert does not refund gas already burnt. So gas is
+spendable value the guard structurally cannot reach.
 
-This is not theoretical. Measured against a live agent wallet on Arc testnet,
-with the float target set to 0.05 USDC:
+It is worse than "a second pot we don't watch". Verified against Arc testnet
+across several unrelated addresses: the ERC-20 at
+`0x3600000000000000000000000000000000000000` is a 6-decimal *view over the
+native balance*, not a separate ledger. For every address checked,
+`native / 10^12 == erc20` exactly. One balance, two decimal views.
 
-```
-gas held : 89.96 USDC (native)
-exposure : 89.91 USDC over the intended float
-```
+Which means: **any USDC the guard can move by `transferFrom`, the same key can
+also burn as gas, with no cap and no policy in the way.** The daily limit
+governs one spending mechanism over a balance that a second, ungoverned
+mechanism can drain.
 
-That is roughly 90% of the entire 100 USDC daily cap sitting outside the cap.
-The only real bound is how much is in the wallet, so the agent's gas balance is
-treated as a float exactly like the x402 wallet: keep it thin, top it up on a
-schedule, treat a surplus as exposure. `checkGasFloat` in `src/guard.js` reports
-it. It is advisory and cannot be otherwise: a native top-up is not an ERC-20
-`transferFrom`, so unlike `ensureFloat` it cannot be routed through `guardedPay`
-and metered by the cap.
+In the current deployment that gap is total, because `treasury`, `owner`, the
+whitelisted agent, and the gas payer are all the same EOA. The guard's daily cap
+is 100 USDC; the treasury balance is also the agent's gas balance, so 100% of it
+is burnable outside the cap.
+
+The fix is not a float, it is **separating the keys**: the treasury holds funds
+and approves the guard, and the agent is a different key holding only a thin gas
+float. The contract already supports this - `setTreasury` and `setAgent` are
+independent, and nothing requires them to be the same address. This project
+already makes exactly this argument one rail over, in `.env.example`, about why
+`X402_PRIVATE_KEY` must differ from `PRIVATE_KEY`. The same reasoning applies
+here and is not yet applied.
+
+`checkGasFloat` in `src/guard.js` reports how far a wallet sits above its
+intended gas float. It is advisory and cannot be otherwise: a native top-up is
+not an ERC-20 `transferFrom`, so unlike `ensureFloat` it cannot be routed
+through `guardedPay` and metered by the cap. Thinning the gas balance is only
+meaningful once the agent is not also the treasury.
 
 **2. The x402 float bounds loss rate, not total loss.** The x402 wallet is a
 separate key holding only a float, refilled only through `guardedPay`. A daily
@@ -202,3 +221,23 @@ variants and the honest case are locked in by `test/bytecode.test.mjs`.
 Genuine solc metadata still trims at exactly the right boundary, verified
 against the real deployed Arc USDC runtime and unchanged across all nine Circle
 system contracts.
+
+Then the fix itself was attacked, and it had a hole of its own. The reachability
+check only evaluated `PUSH1` through `PUSH4`, so the same crafted blob reached by
+a `PUSH5` carrying an identical zero-padded target walked straight through it -
+no arithmetic required, just a wider push opcode:
+
+```
+PUSH1 0x0c ; JUMP  -> flagged, blob kept, SELFDESTRUCT scored
+PUSH5 0x000000000c ; JUMP  -> not flagged, blob trimmed away, contract reported LOW/0
+```
+
+Every push width is now read, with the bytes above the low four required to be
+zero for the value to be a plausible code offset. `test/bytecode.test.mjs` walks
+all 32 widths rather than the one that was reported, plus a case asserting a
+genuine wide constant is not mistaken for a jump target.
+
+The general lesson is the one worth keeping: the first fix was written against
+the attack that had been demonstrated, not against the class it belonged to. A
+narrow check that happens to cover the proof of concept reads exactly like a
+correct one until someone widens the opcode.

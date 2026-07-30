@@ -383,7 +383,7 @@
         <ul class="pts green compact" style="margin-top:24px">
           <li>Chain <b>5042002</b>, explorer <b>testnet.arcscan.app</b>, USDC as the native gas token.</li>
           <li>The reverted drain and the settled payment above are <b>real receipts</b> a judge can open.</li>
-          <li><b>67 tests</b>, no fork and no keys: the guard, the signer, the bytecode lane, and a real localhost x402 merchant.</li>
+          <li><b>77 tests</b>, no fork and no keys: the guard, the signer, the bytecode lane, and a real localhost x402 merchant.</li>
         </ul>
       </div>
     </section>
@@ -432,7 +432,8 @@ const fetch =
             <ul class="pts green compact" style="margin-top:6px">
               <li>AegisGuard deployed and enforcing on Arc, with real reverted and settled receipts.</li>
               <li>Bytecode lane reading live Arc code; x402 signer, fetch wrapper and JIT float in place.</li>
-              <li>67 tests, 55 of them needing no node at all.</li>
+              <li>Treasury split off the agent: the hot key holds about 3% of the money, not all of it.</li>
+              <li>77 tests, 65 of them needing no node at all.</li>
               <li>A written threat model, including the designs that were attacked and dropped.</li>
             </ul>
           </div>
@@ -440,7 +441,7 @@ const fetch =
             <h3>Next</h3>
             <p class="where">toward the final checkpoint</p>
             <ul class="pts compact" style="margin-top:6px">
-              <li>Split the agent key from the treasury, so gas cannot burn the guarded balance.</li>
+              <li>Separate the owner key from the agent, so policy writes and payments stop sharing a wallet.</li>
               <li>A short recorded walkthrough.</li>
             </ul>
           </div>

@@ -334,7 +334,7 @@ agent is given in place of a raw transfer.
 npm test
 ```
 
-67 cases, no fork / no testnet / no keys. 55 of them need no node at all; only the
+77 cases, no fork / no testnet / no keys. 65 of them need no node at all; only the
 12-case guard suite requires `anvil` on your PATH. The guard suite spins up a local `anvil`
 node, deploys a mock USDC + the guard + the honeypot, and drives every policy path
 through viem (allowed pay, non-agent rejected, denylist, unvetted contract,

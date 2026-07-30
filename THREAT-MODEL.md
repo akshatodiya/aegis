@@ -85,18 +85,32 @@ also burn as gas, with no cap and no policy in the way.** The daily limit
 governs one spending mechanism over a balance that a second, ungoverned
 mechanism can drain.
 
-In the current deployment that gap is total, because `treasury`, `owner`, the
-whitelisted agent, and the gas payer are all the same EOA. The guard's daily cap
-is 100 USDC; the treasury balance is also the agent's gas balance, so 100% of it
-is burnable outside the cap.
+That gap used to be total here. `treasury`, `owner`, the whitelisted agent and
+the gas payer were all one EOA, so the guard's 100 USDC daily cap governed a
+balance that was 100% burnable as gas outside it.
 
-The fix is not a float, it is **separating the keys**: the treasury holds funds
-and approves the guard, and the agent is a different key holding only a thin gas
-float. The contract already supports this - `setTreasury` and `setAgent` are
-independent, and nothing requires them to be the same address. This project
-already makes exactly this argument one rail over, in `.env.example`, about why
-`X402_PRIVATE_KEY` must differ from `PRIVATE_KEY`. The same reasoning applies
-here and is not yet applied.
+The fix is not a float, it is **separating the keys**, and it is now applied on
+the live deployment. The treasury holds the funds and approves the guard; the
+agent is a different key holding only a gas float:
+
+```
+treasury  0xa410..9fD2   86.00 USDC, signs nothing after its one approve
+agent     0x3C00..9Eca6   2.96 USDC, pays gas, calls guardedPay
+```
+
+The hot key that a prompt injection can actually reach now holds about 3% of the
+money instead of all of it. That ratio is the bound. It needed no redeploy:
+`setTreasury` and `setAgent` are independent on the deployed contract, and
+`npm run rotate-keys` performs the split (refusing to repoint the treasury until
+that treasury has approved the guard, so there is never a window where the guard
+cannot pull). Verified end to end afterwards: a guarded payment debited the
+treasury, decremented its allowance, and left the agent's balance touched only
+for gas.
+
+What this does NOT fix: the agent's own gas float is still burnable, and the
+owner is still the same key as the agent (see item 3). This project made the
+same argument one rail over, in `.env.example`, about why `X402_PRIVATE_KEY`
+must differ from `PRIVATE_KEY`. It now applies on both rails.
 
 `checkGasFloat` in `src/guard.js` reports how far a wallet sits above its
 intended gas float. It is advisory and cannot be otherwise: a native top-up is

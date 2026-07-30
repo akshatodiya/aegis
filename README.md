@@ -56,7 +56,7 @@ Three checks on the recipient, mapped onto on-chain state in the contract:
 
 | Lane | Where it lives | What it looks at |
 |------|----------------|------------------|
-| Bytecode | off-chain scan + on-chain code check | reads the recipient's EVM code (live `eth_getCode` on Arc) and flags traps like `SELFDESTRUCT`, `DELEGATECALL`, `CREATE2`, `tx.origin` |
+| Bytecode | off-chain scan + on-chain code check | reads the recipient's EVM code (live `eth_getCode` on Arc) and flags traps like `SELFDESTRUCT`, `DELEGATECALL`, `CREATE2`, `tx.origin` - and won't let a recipient hide code from the scan behind a faked metadata trailer |
 | Reputation | on-chain `denylist` / `allowlist` | address lists (real mappings, not a stub) |
 | Behavior | on-chain daily spend cap | a rolling per-day limit, so splitting a payment doesn't dodge it |
 
@@ -64,6 +64,13 @@ If the bytecode scan gets alarmed or is unsure, the off-chain layer hands the ra
 code to an LLM for a second opinion. It runs through the Claude CLI locally
 (`claude -p`), so there's no API key to manage, and if that call ever fails the
 engine just trusts the deterministic verdict - the demo never hangs on it.
+
+Circle's own infrastructure on Arc (USDC, Permit2, CCTP's `TokenMessengerV2`, the
+Gateway pair, `FxEscrow`) is *named* rather than quietly cleared. Most of it scores
+MEDIUM for `DELEGATECALL` because it genuinely is a proxy, so the lane reports what
+the contract is and whether it's upgradeable instead of zeroing the score -
+Permit2 is immutable, the rest can be changed by Circle, and that's a real
+difference a human should see.
 
 ```
 denylisted            -> BLOCK
@@ -283,14 +290,17 @@ agent is given in place of a raw transfer.
 npm test
 ```
 
-54 cases, no fork / no testnet / no keys. The guard suite spins up a local `anvil`
+65 cases, no fork / no testnet / no keys. The guard suite spins up a local `anvil`
 node, deploys a mock USDC + the guard + the honeypot, and drives every policy path
 through viem (allowed pay, non-agent rejected, denylist, unvetted contract,
 codehash kill-switch, `REVIEW -> BLOCK`, allowlisting `REVIEW -> PAY`, daily-limit,
 JIT-float-draws-on-the-daily-limit, owner-only setters). The x402 suite runs the
 signer, the fetch wrapper, and a real localhost HTTP merchant offline (round-trip
 settles, `402` shape, replay, tampered signature, bait-and-switch, over-cap
-ASK_HUMAN, human-yes-does-not-bypass-the-signer).
+ASK_HUMAN, human-yes-does-not-bypass-the-signer). The bytecode suite needs no node
+at all: it pins the metadata trim against a recipient that fakes its own trailer to
+hide reachable code from the scan, and checks genuine solc metadata still gets cut
+at exactly the right boundary.
 
 ## Also runs on Sepolia
 
@@ -329,6 +339,14 @@ is what's deployed on Arc.
   vetted. A metamorphic redeploy can't swap code under an allowlisted address (dead
   since EIP-6780), but an upgradeable proxy keeps its address and can change
   behavior after vetting - re-vet contracts you do not control.
+- **Gas is outside the guard.** On Arc gas *is* USDC, and the EVM deducts it from
+  the sender before `guardedPay`'s first opcode runs, so no on-chain rule can bound
+  it (reverting doesn't refund gas already burnt). The agent's native balance is
+  therefore treated as a float the same way the x402 wallet is: keep it thin.
+  `checkGasFloat` reports how far above that float a wallet is sitting.
+
+Full write-up, including the designs that were attacked and dropped on purpose:
+[`THREAT-MODEL.md`](THREAT-MODEL.md).
 
 ## Built with
 

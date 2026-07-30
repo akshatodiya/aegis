@@ -9,6 +9,7 @@
     "deploy-guard": "node scripts/deploy-guard.js",
     "guard-setup": "node scripts/guard-setup.js",
     "rotate-keys": "node scripts/rotate-keys.js",
+    "one-pot": "node scripts/one-pot.js",
     "verify-guard": "node scripts/verify-guard.js",
     "good": "node src/agent.js good",
     "bad": "node src/agent.js bad",
@@ -18,6 +19,7 @@
     "guard-bad": "node src/agent.js guard bad",
     "test": "node --test test/*.test.mjs",
     "x402-demo": "node src/x402-demo.js",
+    "sell-demo": "node src/aegis-service-demo.js",
     "drain": "node scripts/injected-drain.js"
   },
   "keywords": [

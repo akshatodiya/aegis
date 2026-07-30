@@ -255,6 +255,35 @@ npm run x402-demo         # spins up a local mock merchant and walks the beats:
                           #   3  a purchase over the per-payment cap -> ASK_HUMAN (y/N)
 ```
 
+### Aegis on the selling side
+
+```bash
+npm run sell-demo         # Aegis IS the merchant: an agent pays 0.001 USDC over
+                          #   x402 to have a recipient screened, and gets the
+                          #   verdict back as the thing it bought
+```
+
+Same signer, same fetch wrapper, same policy engine as every other demo, with the
+screening as the product instead of a fixture. No API key, no account, no signup:
+the agent pays at the moment it needs an answer. A firewall that has to be
+installed reaches whoever installs it; one that can be *bought per call* reaches
+any agent that can pay.
+
+### One pot, two windows
+
+```bash
+npm run one-pot           # shows native gas and ERC-20 USDC for the same wallet,
+                          #   and that native / 10^12 == ERC-20, exactly
+npm run one-pot -- --burn # sends a 0-value self-transaction: moves no ERC-20 at
+                          #   all, and both balances still fall, because gas came
+                          #   out of the same pot
+```
+
+This is the Arc-specific bit worth understanding. The ERC-20 is a *view* over the
+balance the native side spends. The guard meters the ERC-20 window; gas leaves
+through the native one, before any contract code runs. Same money, two exits, one
+of them ungoverned - which is why the treasury must not be the agent.
+
 ### The closer
 
 ```bash

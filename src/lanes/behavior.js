@@ -5,7 +5,10 @@
 // plain USDC numbers, not base units (50 = 50 USDC)
 const AMOUNT_THRESHOLD = 50;
 
-// addresses we've "seen before". fake memory - empty until we add real state.
+// addresses we've "seen before". be honest about what this is: nothing ever
+// writes to it, so `firstTime` below is true for every recipient and the rule
+// collapses to "is this a large payment". it's the seam a real payment history
+// would plug into, not a signal we actually have today.
 const KNOWN = new Set([]);
 
 export function checkBehavior(recipient, amount) {
@@ -17,7 +20,7 @@ export function checkBehavior(recipient, amount) {
       lane: 'behavior',
       level: 'MEDIUM',
       escalate: true,
-      reason: `Large payment (${amount} USDC > ${AMOUNT_THRESHOLD}) to a first-time recipient - worth a human glance.`,
+      reason: `Large payment (${amount} USDC > ${AMOUNT_THRESHOLD}) and no payment history to weigh it against - worth a human glance.`,
     };
   }
   return {

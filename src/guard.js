@@ -217,7 +217,28 @@ export async function checkGasFloat(who, { target, min } = {}) {
   const plan = gasFloatPlan({ balance, target: targetUnits, min: minUnits });
   const held = formatUnits(balance, 18);
 
-  if (plan.exposure > 0n) {
+  // the sharper version of the same risk. on Arc the ERC-20 is a 6-decimal view
+  // over the native balance, so if this wallet is also the treasury then every
+  // USDC the guard meters through transferFrom is simultaneously burnable as
+  // uncapped gas by the same key, and the daily limit governs one of the two
+  // ways to spend it. this is the argument .env.example already makes about the
+  // x402 key, one rail over.
+  let isTreasury = false;
+  try {
+    const treasury = await publicClient.readContract({
+      address: guardAddress(), abi: guardAbi(), functionName: 'treasury',
+    });
+    isTreasury = treasury.toLowerCase() === wallet.toLowerCase();
+  } catch {
+    // no guard wired up yet - the float advice below still stands on its own
+  }
+  if (isTreasury) {
+    console.log(
+      `  !! this wallet is also the guard's treasury, so the whole guarded balance ` +
+      `is burnable as gas outside the daily cap. run the agent on its own key and ` +
+      `leave the treasury holding the funds.`,
+    );
+  } else if (plan.exposure > 0n) {
     console.log(
       `  !! agent gas balance ${held} USDC is above the ${target} float ` +
       `(${formatUnits(plan.exposure, 18)} over). that surplus is burnable by a hijacked key ` +

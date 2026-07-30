@@ -42,6 +42,7 @@ after(() => server.close());
 function client({ recorded = [], intercept = false } = {}) {
   const signer = createAegisSigner(account, {
     usdc: USDC, chainId: CHAIN_ID,
+    balanceOf: async () => 1000000000n, // offline: a wallet with plenty of float
     check: async () => ({ decision: 'PAY', reasons: ['(injected)'] }),
   });
   const fetchImpl = async (url, init) => {

@@ -22,8 +22,9 @@
 // given. It does NOT stop a fully compromised process that reads the key from
 // memory - that is what the out-of-process signer and the on-chain float cap are
 // for. We don't claim otherwise.
+import { erc20Abi } from 'viem';
 import { aegisCheck, DECISION } from '../aegis.js';
-import { chain, addresses, assertAddress } from '../config.js';
+import { chain, addresses, assertAddress, publicClient } from '../config.js';
 
 // EIP-3009 primary types that move value - each must clear policy.
 const PAYMENT_TYPES = new Set(['TransferWithAuthorization', 'ReceiveWithAuthorization']);
@@ -73,7 +74,10 @@ function readAuthorization(message) {
 }
 
 // the guard that runs before we sign an EIP-3009 authorization.
-async function assertPaymentAllowed({ domain, message }, { usdc, chainId, maxTtl, check, now }) {
+async function assertPaymentAllowed(
+  { domain, message },
+  { usdc, chainId, maxTtl, check, now, balanceOf, from },
+) {
   const auth = readAuthorization(message);
 
   // --- invariant 1: the asset. a hostile 402 can name any contract "USDC" and
@@ -113,6 +117,21 @@ async function assertPaymentAllowed({ domain, message }, { usdc, chainId, maxTtl
     throw new AegisPaymentRefused('authorization has a non-positive value.');
   }
 
+  // don't sign a cheque the wallet can't cash. an authorization for more than
+  // the float holds can't settle today, so signing it is pure downside: the
+  // signature stays valid until validBefore, and settles the moment someone
+  // tops the wallet up. a human approving an over-cap payment approves the
+  // AMOUNT, not "and also whatever the balance does next."
+  if (from && balanceOf) {
+    const held = await balanceOf(from);
+    if (auth.value > held) {
+      throw new AegisPaymentRefused(
+        `authorization is for ${auth.value} base units but the wallet holds ${held} - ` +
+        'refusing to leave a signature that settles as soon as it is topped up.',
+      );
+    }
+  }
+
   // --- the policy verdict: run the same firewall on the payTo.
   const verdict = await check(auth.to, baseUnitsToUsdc(auth.value));
   if (verdict.decision !== DECISION.PAY) {
@@ -135,6 +154,12 @@ export function createAegisSigner(account, opts = {}) {
     check = (to, amount) => aegisCheck(to, amount),
     onRefuse = null, // optional hook so the CLI can print the refusal nicely
     now = () => Math.floor(Date.now() / 1000),
+    // the wallet's own USDC balance. defaults to reading it on-chain so the
+    // "won't sign what it can't settle" rule holds unless a caller deliberately
+    // opts out (pass null); offline tests inject a stub instead of a node.
+    balanceOf = (who) => publicClient.readContract({
+      address: usdc, abi: erc20Abi, functionName: 'balanceOf', args: [who],
+    }),
   } = opts;
 
   const usdcLower = usdc.toLowerCase();
@@ -147,7 +172,9 @@ export function createAegisSigner(account, opts = {}) {
       if (PAYMENT_TYPES.has(primaryType)) {
         // any EIP-3009 payment, on any asset - assertPaymentAllowed refuses
         // unless it's our USDC, on our chain, fresh, positive, and PAY.
-        await assertPaymentAllowed(params, { usdc, chainId, maxTtl, check, now: now() });
+        await assertPaymentAllowed(params, {
+          usdc, chainId, maxTtl, check, now: now(), balanceOf, from: account.address,
+        });
       } else if (onGuardedToken && !SAFE_TOKEN_TYPES.has(primaryType)) {
         // non-payment typed data on OUR token = a fund-moving primitive we don't
         // model (Permit / approve-by-sig / anything new). refuse it.

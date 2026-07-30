@@ -48,6 +48,7 @@ function signerWith(decision, extra = {}) {
     usdc: USDC,
     chainId: CHAIN_ID,
     now: () => NOW,
+    balanceOf: async () => 1000000000n, // offline: a wallet with plenty of float
     check: async () => ({ decision, reasons: ['(injected)'] }),
     ...extra,
   });
@@ -70,6 +71,23 @@ test('refuses when the verdict is ASK_HUMAN', async () => {
     () => signerWith(DECISION.ASK_HUMAN).signTypedData(payment()),
     (e) => e instanceof AegisPaymentRefused && e.verdict === DECISION.ASK_HUMAN,
   );
+});
+
+test('refuses to sign for more than the wallet actually holds', async () => {
+  // a PAY verdict is not enough. an authorization the float can't cover today
+  // still settles the moment someone tops the wallet up, so it must not exist.
+  const poor = signerWith(DECISION.PAY, { balanceOf: async () => 9_999n });
+  await assert.rejects(
+    () => poor.signTypedData(payment({ value: 10_000n })),
+    (e) => e instanceof AegisPaymentRefused && /wallet holds/.test(e.reason),
+  );
+});
+
+test('signs when the balance covers the authorization exactly', async () => {
+  // the boundary goes the other way: equal is coverable, so it must sign.
+  const exact = signerWith(DECISION.PAY, { balanceOf: async () => 10_000n });
+  const sig = await exact.signTypedData(payment({ value: 10_000n }));
+  assert.match(sig, /^0x[0-9a-f]{130}$/i);
 });
 
 test('refuses a foreign asset even when the verdict would be PAY', async () => {

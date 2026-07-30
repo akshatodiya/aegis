@@ -50,6 +50,7 @@ const resp200 = () => new Response('ok', { status: 200 });
 function build({ decision = 'PAY', catalogEntries = [{ payTo: PAYTO, name: 'Test API', maxPrice: '10000' }], responses, fetchOpts = {} } = {}) {
   const signer = createAegisSigner(account, {
     usdc: USDC, chainId: CHAIN_ID, now: () => NOW,
+    balanceOf: async () => 1000000000n, // offline: a wallet with plenty of float
     check: async () => ({ decision, reasons: ['(injected)'] }),
   });
   const fetchImpl = fakeFetch(responses);

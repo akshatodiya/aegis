@@ -269,6 +269,23 @@ the agent pays at the moment it needs an answer. A firewall that has to be
 installed reaches whoever installs it; one that can be *bought per call* reaches
 any agent that can pay.
 
+### Killing a whole family with one write
+
+```bash
+npm run clone-family      # deploys real EIP-1167 clones of the honeypot on Arc,
+                          #   blocks the codehash using ONE of them, and shows
+                          #   every clone flip to BLOCK. run it twice: the second
+                          #   run's brand-new clones are born blocked.
+```
+
+The codehash switch matches an exact runtime artifact, so a recompile escapes it
+(see the limitations above, and `THREAT-MODEL.md`). Minimal proxies are the case
+where that limitation does not apply and the mechanism is at its strongest: a
+clone is 45 bytes with the implementation address in the middle and *no metadata
+trailer*, so every clone of one implementation is byte-identical and shares a
+single codehash. One write covers all of them, including clones nobody has
+deployed yet.
+
 ### One pot, two windows
 
 ```bash

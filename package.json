@@ -11,6 +11,7 @@
     "treasury-approve": "node scripts/treasury-approve.js",
     "rotate-keys": "node scripts/rotate-keys.js",
     "one-pot": "node scripts/one-pot.js",
+    "clone-family": "node scripts/clone-family.js",
     "verify-guard": "node scripts/verify-guard.js",
     "good": "node src/agent.js good",
     "bad": "node src/agent.js bad",

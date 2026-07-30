@@ -23,10 +23,11 @@ export async function aegisCheck(recipient, amount, opts = {}) {
   // bit different (see the EOA case below), so the engine needs to know.
   const { isApprove = false } = opts;
 
-  // lane 1 is a real on-chain call, 2 and 3 are sync mocks
+  // lanes 1 and 3 read real chain state (recipient code, and the guard's own
+  // Paid history); lane 2 is still a sync mock over real on-chain lists
   const bytecode = await checkBytecode(recipient);
   const reputation = checkReputation(recipient);
-  const behavior = checkBehavior(recipient, amount);
+  const behavior = await checkBehavior(recipient, amount);
 
   const lanes = { bytecode, reputation, behavior };
   const reasons = [];

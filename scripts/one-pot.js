@@ -8,7 +8,7 @@
 // That matters for the guard. AegisGuard meters spending through the ERC-20
 // window, with a daily cap it enforces atomically. Gas leaves through the native
 // window, and the EVM takes it before the contract's first opcode runs, so there
-// is no point at which any on-chain rule could refuse it - and a revert does not
+// is no point at which any on-chain rule could refuse it - and a revert doesn't
 // give back gas already burnt. Same money, two exits, one of them ungoverned.
 //
 // Which is why the treasury must not be the agent. This script shows the
@@ -52,7 +52,7 @@ async function main() {
   const before = await balances(who, usdc);
   show('right now:', before);
 
-  // what the guard actually governs, next to what it cannot
+  // what the guard actually governs, next to what it can't
   if (addresses.guard) {
     const abi = compileGuard().abi;
     const read = (fn, args = []) => publicClient.readContract({ address: addresses.guard, abi, functionName: fn, args });

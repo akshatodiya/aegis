@@ -4,7 +4,7 @@
 // it around: Aegis is the merchant. An agent that wants a recipient screened
 // pays a fraction of a cent over x402 and gets a verdict back.
 //
-// The point is not the money, it is that the firewall needs no privileged
+// The point isn't the money, it's that the firewall needs no privileged
 // position to be useful. It is a service an agent can buy at the moment it
 // matters, priced per call, with no account, no API key and no signup - which is
 // the whole argument for x402 in the first place. And it costs no new
@@ -13,7 +13,7 @@
 // product instead of a weather fixture.
 //
 // One honest note: the buyer here is the agent's own x402 float wallet, because
-// it is the wallet in this repo that holds a float and is meant to sign. In a
+// it's the wallet in this repo that holds a float and is meant to sign. In a
 // real deployment the buyer is somebody else's agent entirely. The mechanism is
 // identical either way - that is the point of paying over an open protocol.
 import { formatUnits, isAddress } from 'viem';

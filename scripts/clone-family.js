@@ -6,13 +6,13 @@
 // That is stated plainly in THREAT-MODEL.md, because overclaiming it would be
 // worse than the limitation.
 //
-// But there is a case where it genuinely does kill a family, and it is the case
+// But there is a case where it genuinely does kill a family, and it's the case
 // that actually shows up in the wild: EIP-1167 minimal proxies. A clone is 45
 // bytes of runtime with the implementation address baked into the middle and
 // nothing else - no metadata trailer, no compiler fingerprint. Deploy the same
 // implementation behind a hundred clones and all hundred have byte-identical
 // runtime, so all hundred share one codehash. Blocking it once blocks them all,
-// including clones that do not exist yet.
+// including clones that don't exist yet.
 //
 // This script deploys real clones of the honeypot on Arc and proves it.
 //

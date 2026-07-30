@@ -7,7 +7,7 @@
 // key, so nothing in the normal run path can touch it.
 //
 // The key goes in .env as TREASURY_PRIVATE_KEY (gitignored), is used once, and
-// should then be removed from .env and kept somewhere this repo cannot reach.
+// should then be removed from .env and kept somewhere this repo can't reach.
 // It is never printed here - only the address derived from it.
 //
 //   npm run treasury-approve          approve exactly the treasury's balance
@@ -21,7 +21,7 @@ async function main() {
   if (!raw || raw.trim() === '') {
     throw new Error(
       'TREASURY_PRIVATE_KEY missing in .env.\n' +
-      '  Add it, run this once, then delete it from .env - it is not needed again.',
+      "  Add it, run this once, then delete it from .env - it's not needed again.",
     );
   }
   const guard = assertAddress('AEGIS_GUARD', addresses.guard);

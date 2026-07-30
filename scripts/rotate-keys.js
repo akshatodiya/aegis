@@ -1,7 +1,7 @@
 // Split the one EOA that currently does everything into three roles.
 //
 // Why this exists: on Arc the ERC-20 at 0x3600.. is a 6-decimal view over the
-// native balance, so it is ONE pot with two windows. guardedPay moves it through
+// native balance, so it's ONE pot with two windows. guardedPay moves it through
 // the ERC-20 window; an ordinary transaction burns it as gas through the native
 // window. Gas is deducted before guardedPay's first opcode runs, so no on-chain
 // rule can bound it. That means "the treasury only approves the guard" is only
@@ -21,7 +21,7 @@
 //   - the new owner must call acceptOwnership() itself
 // The script checks the first and prints the second, rather than pretending.
 //
-// Only NEW_TREASURY is required, and it is the one that matters: splitting the
+// Only NEW_TREASURY is required, and it's the one that matters: splitting the
 // treasury off the agent is what stops the guarded funds being burnable as gas.
 // NEW_AGENT and NEW_OWNER are optional and default to the current wallet, so the
 // one-key version of this is a real, complete fix rather than a half measure.
@@ -85,7 +85,7 @@ async function main() {
   // native balance, so a key that is both treasury and agent can burn the
   // guarded funds as gas, uncapped, with nothing on-chain able to refuse.
   if (newTreasury.toLowerCase() === newAgent.toLowerCase()) {
-    throw new Error('treasury and agent cannot be the same address - that is the hole this script exists to close.');
+    throw new Error("treasury and agent can't be the same address - that's the hole this script exists to close.");
   }
   // owner == agent is today's disclosed limitation, not a blocker: this repo
   // signs owner writes and agent writes with the same wallet, so splitting it
@@ -97,7 +97,7 @@ async function main() {
   }
 
   // the new treasury must already be funded AND have approved the guard, or
-  // setTreasury would point the guard at a wallet it cannot pull from and every
+  // setTreasury would point the guard at a wallet it can't pull from and every
   // guardedPay would start failing. check before touching anything.
   const [bal, allowance] = await Promise.all([
     publicClient.readContract({ address: usdc, abi: erc20Abi, functionName: 'balanceOf', args: [newTreasury] }),
@@ -136,7 +136,7 @@ async function main() {
 
   if (!keepingAgent) steps.push(['setAgent', [newAgent, true], `authorise ${newAgent} as an agent`]);
   steps.push(['setTreasury', [newTreasury], `point the guard at treasury ${newTreasury}`]);
-  // only revoke the old key if it is not the agent we are keeping - otherwise
+  // only revoke the old key if it's not the agent we're keeping - otherwise
   // this would cheerfully strip the agent it just decided to leave in place.
   if (!keepingAgent) {
     steps.push(['setAgent', [account.address, false], `revoke the old all-in-one key ${account.address}`]);
@@ -154,7 +154,7 @@ async function main() {
     if (keepingOwner) console.log(`  (owner stays ${owner})`);
     if (!keepingOwner) {
       console.log(`\n  then, from the NEW OWNER key: acceptOwnership() on ${guard}`);
-      console.log('  ownership is two-step on purpose, so a wrong address cannot brick admin.');
+      console.log("  ownership is two-step on purpose, so a wrong address can't brick admin.");
     }
     console.log();
     return;

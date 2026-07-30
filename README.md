@@ -58,16 +58,16 @@ Three checks on the recipient, mapped onto on-chain state in the contract:
 |------|----------------|------------------|
 | Bytecode | off-chain scan + on-chain code check | reads the recipient's EVM code (live `eth_getCode` on Arc) and flags traps like `SELFDESTRUCT`, `DELEGATECALL`, `CREATE2`, `tx.origin` - and won't let a recipient hide code from the scan behind a faked metadata trailer |
 | Reputation | off-chain, still a mock | hardcoded lists that nothing writes to. The real address lists live in the guard contract (`denylist` / `allowlist`) and are enforced there, not here |
-| Behavior | off-chain, reads the guard's `Paid` logs | how often the guard has actually paid this recipient. Three answers, not two: never, N times, or "could not read" - which is never reported as never. Windowed (see below) |
+| Behavior | off-chain, reads the guard's `Paid` logs | how often the guard has actually paid this recipient. Three answers, not two: never, N times, or "couldn't read" - and the third is never reported as the first. Windowed (see below) |
 
 Separately, and not part of the three lanes above, the contract enforces a rolling
 **daily spend cap** of its own, so splitting a payment into chunks hits the same
-wall. That is real on-chain state and it is what bounds the x402 float too.
+wall. That's real on-chain state, and it's what bounds the x402 float too.
 
 The behavior lane's window is worth stating: the public Arc gateways reject wide
 `getLogs` ranges, so it scans the most recent 50k blocks rather than all history.
-It therefore says "not paid in recent history", never "never paid". Full history
-would need an indexer, and we do not have one, so we do not imply one.
+It says "not paid in recent history", never "never paid". Full history would
+need an indexer, and we don't have one, so we don't imply one.
 
 If the bytecode scan gets alarmed or is unsure, the off-chain layer hands the raw
 code to an LLM for a second opinion. It runs through the Claude CLI locally
@@ -289,7 +289,7 @@ npm run clone-family      # deploys real EIP-1167 clones of the honeypot on Arc,
 
 The codehash switch matches an exact runtime artifact, so a recompile escapes it
 (see the limitations above, and `THREAT-MODEL.md`). Minimal proxies are the case
-where that limitation does not apply and the mechanism is at its strongest: a
+where that limitation doesn't apply and the mechanism is at its strongest: a
 clone is 45 bytes with the implementation address in the middle and *no metadata
 trailer*, so every clone of one implementation is byte-identical and shares a
 single codehash. One write covers all of them, including clones nobody has
@@ -366,24 +366,24 @@ key, and no `signTypedData` to wrap.
 That matters because of where Aegis stands on this rail. Aegis screens in the
 fetch wrapper and *enforces in the signer* - the signer is the chokepoint
 precisely because it holds the key and can refuse. Against a hosted wallet the
-key is not in the process, so:
+key isn't in the process, so:
 
 - **The decision half ports cleanly.** Run `aegisCheck(payTo, amount)` plus the
   price, registry and domain checks before calling `payService`. Useful, and it
   is what most integrations would ship.
-- **The enforcement half does not port at all.** Nothing stops a compromised
+- **The enforcement half doesn't port at all.** Nothing stops a compromised
   agent from calling `payService` directly and skipping the check, because the
   refusal would have to happen inside Circle's CLI.
 
 There is a second, smaller edge worth naming: `chains.ts` in that package defines
 `Chain = 'BASE' | 'POLYGON'` against `mainnet.base.org` and `polygon-rpc.com`. The
-kit does not target Arc, or any testnet. So even the decision half would mean
+kit doesn't target Arc, or any testnet. So even the decision half would mean
 pointing the bytecode lane at Base or Polygon mainnet, and `checkBytecode`
 currently binds a single module-level Arc client rather than taking one as an
 argument.
 
 So with a Circle hosted wallet, Aegis is advisory. With a local key it is
-binding. That is not a knock on their kits - it is the same distinction this
+binding. That isn't a knock on their kits - it's the same distinction this
 project makes about its own two rails, and the reason the x402 work here wraps a
 signer rather than a fetch alone. We would rather state the limit than claim a
 drop-in that quietly loses its teeth.
@@ -396,9 +396,8 @@ npm test
 
 80 cases, no fork / no testnet / no keys. 65 of them need no node at all; only the
 15-case guard suite needs `anvil`, and it looks in `~/.foundry/bin` as well as on
-your PATH, because `foundryup` only wires that directory into interactive shell
-profiles - so a CI runner or a plain `sh -c` can have foundry installed and still
-not see it. The guard suite spins up a local `anvil`
+your PATH, because `foundryup` only wires that directory into interactive shell profiles, so
+a CI runner or a plain `sh -c` can have foundry installed and still not see it. The guard suite spins up a local `anvil`
 node, deploys a mock USDC + the guard + the honeypot, and drives every policy path
 through viem (allowed pay, non-agent rejected, denylist, unvetted contract,
 codehash kill-switch, `REVIEW -> BLOCK`, allowlisting `REVIEW -> PAY`, daily-limit,

@@ -9,8 +9,8 @@
 //
 // no database, no external feed, no scores. just the chain telling us whether we
 // have seen this recipient. if the log query fails (rate limit, no guard wired
-// up yet) we say the history is UNKNOWN rather than pretending it is empty -
-// "we have never paid them" and "we cannot tell" are different claims.
+// up yet) we say the history is UNKNOWN rather than pretending it's empty -
+// "we have never paid them" and "we can't tell" are different claims.
 import { parseAbiItem } from 'viem';
 import { publicClient, addresses } from '../config.js';
 
@@ -23,7 +23,7 @@ const PAID = parseAbiItem('event Paid(address indexed agent, address indexed to,
 // (~100k blocks is where they start failing), so this is a window, not the whole
 // chain, and the wording below says so rather than claiming "never". covering
 // full history properly needs an indexer, which is a real answer for a real
-// deployment and out of scope here - what we will not do is imply we have one.
+// deployment and out of scope here - what we won't do is imply we have one.
 const WINDOW = 50_000n;
 
 // how many times the guard has paid this recipient inside the window. null means

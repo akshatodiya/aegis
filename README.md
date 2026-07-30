@@ -229,6 +229,21 @@ npm run guard-bad         # tries the honeypot -> BLOCK off-chain, then records 
                           #   REVIEW -> BLOCK. run it again -> "already blocked".
 ```
 
+`guard-setup` leaves one key doing all three jobs, which is fine to try the demo
+and wrong to leave that way. On Arc the ERC-20 is a 6-decimal view over the same
+native balance that pays gas, so a key that is both treasury and agent can burn
+the guarded funds as gas, outside the daily cap, with no on-chain rule able to
+stop it. Split the roles apart once you have three wallets:
+
+```bash
+NEW_TREASURY=0x.. NEW_AGENT=0x.. NEW_OWNER=0x.. npm run rotate-keys
+#   prints a plan and sends nothing. add -- --execute to run it.
+#   no redeploy: setTreasury, setAgent and the two-step ownership transfer are
+#   already on the deployed contract. it refuses to repoint the treasury until
+#   that treasury has approved the guard, so there is no window where nobody
+#   can pay.
+```
+
 ### The x402 rail
 
 ```bash

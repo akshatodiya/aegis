@@ -8,6 +8,7 @@
     "deploy-bad": "node scripts/deploy-bad-contract.js",
     "deploy-guard": "node scripts/deploy-guard.js",
     "guard-setup": "node scripts/guard-setup.js",
+    "rotate-keys": "node scripts/rotate-keys.js",
     "verify-guard": "node scripts/verify-guard.js",
     "good": "node src/agent.js good",
     "bad": "node src/agent.js bad",

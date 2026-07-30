@@ -5,6 +5,9 @@
 import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import {
   createPublicClient, createWalletClient, http, parseUnits, keccak256, parseEventLogs,
   ContractFunctionRevertedError,
@@ -41,10 +44,33 @@ const HONEY = compileContract('HoneypotVault.sol', 'HoneypotVault');
 let anvil;
 let usdc, guard, honeypot; // deployed addresses, fresh per test
 
+// foundryup only wires ~/.foundry/bin into interactive shell profiles, so a
+// non-interactive shell (CI, `sh -c`, some editors) can have anvil installed and
+// still not find it on PATH. look there before giving up, and tell the two
+// failures apart - "not installed" and "installed but invisible" want different
+// fixes, and both used to surface as the same misleading "did not come up".
+function anvilCommand() {
+  const local = join(homedir(), '.foundry', 'bin', 'anvil');
+  return existsSync(local) ? local : 'anvil';
+}
+
 before(async () => {
-  anvil = spawn('anvil', ['--silent'], { stdio: 'ignore' });
+  const cmd = anvilCommand();
+  let spawnError = null;
+  anvil = spawn(cmd, ['--silent'], { stdio: 'ignore' });
+  anvil.on('error', (err) => { spawnError = err; });
+
   for (let i = 0; i < 60; i++) {
+    if (spawnError) break;
     try { await pub.getBlockNumber(); return; } catch { await sleep(100); }
+  }
+  if (spawnError?.code === 'ENOENT') {
+    throw new Error(
+      `could not run anvil (tried "${cmd}").\n` +
+      '  install it:  curl -L https://foundry.paradigm.xyz | bash && foundryup\n' +
+      '  already installed? add it to PATH for this shell:\n' +
+      '    export PATH="$HOME/.foundry/bin:$PATH"',
+    );
   }
   throw new Error('anvil did not come up');
 });
@@ -221,8 +247,83 @@ test('JIT float: refilling the x402 wallet draws on the same daily limit', async
 });
 
 test('only the owner can change policy', async () => {
+  // every owner-gated setter, not just one - the name makes a general claim, so
+  // the assertions have to cover the whole surface. setTreasury in particular is
+  // what the treasury/agent split depends on: if its modifier ever went missing,
+  // an outsider could point the guard at a treasury they control.
+  const ownerOnly = [
+    ['setDenylisted', [bob, true]],
+    ['setAgent', [bob, true]],
+    ['setAllowedContract', [bob, true]],
+    ['setBlockedCodehash', [`0x${'11'.repeat(32)}`, true]],
+    ['setDailyLimit', [usd(1)]],
+    ['setTreasury', [bob]],
+    ['transferOwnership', [bob]],
+  ];
+  for (const [functionName, args] of ownerOnly) {
+    try {
+      await expectRevert(
+        () => pub.simulateContract({ address: guard, abi: GUARD.abi, functionName, args, account: outsider }),
+        'NotOwner',
+      );
+    } catch (err) {
+      // name the offender, or a failure here just says "NotOwner expected"
+      throw new Error(`${functionName} is not owner-gated: ${err.message}`);
+    }
+  }
+});
+
+test('ownership transfer is two-step: proposing does not hand over control', async () => {
+  await send(guard, GUARD.abi, 'transferOwnership', [outsider.address]);
+
+  // still the old owner until the new one accepts, which is the whole point -
+  // a wrong address cannot brick admin, because it never becomes admin.
+  assert.equal(
+    (await pub.readContract({ address: guard, abi: GUARD.abi, functionName: 'owner' })).toLowerCase(),
+    owner.address.toLowerCase(),
+  );
+  assert.equal(
+    (await pub.readContract({ address: guard, abi: GUARD.abi, functionName: 'pendingOwner' })).toLowerCase(),
+    outsider.address.toLowerCase(),
+  );
+
+  // and nobody else can accept on their behalf
   await expectRevert(
-    () => pub.simulateContract({ address: guard, abi: GUARD.abi, functionName: 'setDenylisted', args: [bob, true], account: outsider }),
+    () => pub.simulateContract({ address: guard, abi: GUARD.abi, functionName: 'acceptOwnership', account: owner }),
     'NotOwner',
+  );
+
+  await send(guard, GUARD.abi, 'acceptOwnership', [], outsider);
+  assert.equal(
+    (await pub.readContract({ address: guard, abi: GUARD.abi, functionName: 'owner' })).toLowerCase(),
+    outsider.address.toLowerCase(),
+  );
+});
+
+test('setTreasury repoints where the money is pulled from', async () => {
+  // the on-chain half of `npm run rotate-keys`. bob funds and approves, the
+  // owner repoints, and the next guardedPay must debit bob, not the old treasury.
+  await send(usdc, MOCK.abi, 'mint', [bob, usd(100)]);
+  const asBob = createWalletClient({ account: privateKeyToAccount(PK.bob), chain: foundry, transport: http(RPC) });
+  const approve = await asBob.writeContract({
+    address: usdc, abi: MOCK.abi, functionName: 'approve', args: [guard, usd(100)],
+  });
+  await pub.waitForTransactionReceipt({ hash: approve });
+
+  await send(guard, GUARD.abi, 'setTreasury', [bob]);
+  const before = await pub.readContract({ address: usdc, abi: MOCK.abi, functionName: 'balanceOf', args: [bob] });
+  await send(guard, GUARD.abi, 'guardedPay', [floatWallet, usd(5)]);
+  const after = await pub.readContract({ address: usdc, abi: MOCK.abi, functionName: 'balanceOf', args: [bob] });
+
+  assert.equal(before - after, usd(5), 'the new treasury should have been debited');
+});
+
+test('a payment to the zero address is blocked', async () => {
+  const { verdict, reason } = await assess('0x0000000000000000000000000000000000000000', 1);
+  assert.equal(verdict, 1); // Block
+  assert.equal(reason, 'zero address');
+  await expectRevert(
+    () => pub.simulateContract({ address: guard, abi: GUARD.abi, functionName: 'guardedPay', args: ['0x0000000000000000000000000000000000000000', usd(1)], account: owner }),
+    'zero address',
   );
 });

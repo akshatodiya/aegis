@@ -47,14 +47,18 @@ const ARC_RPCS = [
 // an explicit RPC_URL always wins (a dedicated endpoint behaves predictably);
 // otherwise Arc gets the gateway rotation, and Sepolia has no default we'd
 // want to hardcode, so there it stays required.
-const transport = RPC_URL
+const _transport = RPC_URL
   ? http(RPC_URL)
   : chain.id === arcTestnet.id
     ? fallback(ARC_RPCS.map((url) => http(url)))
     : null;
-if (!transport) {
+if (!_transport) {
   throw new Error('RPC_URL missing in .env - copy .env.example to .env and fill it in.');
 }
+// exported so a script that has to build its own wallet (rotate-keys' treasury
+// approval, which signs with a key this config deliberately never loads) gets
+// the same endpoint and the same gateway rotation as everything else.
+export const transport = _transport;
 
 // read-only client, always available
 export const publicClient = createPublicClient({

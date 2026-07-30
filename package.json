@@ -8,6 +8,7 @@
     "deploy-bad": "node scripts/deploy-bad-contract.js",
     "deploy-guard": "node scripts/deploy-guard.js",
     "guard-setup": "node scripts/guard-setup.js",
+    "treasury-approve": "node scripts/treasury-approve.js",
     "rotate-keys": "node scripts/rotate-keys.js",
     "one-pot": "node scripts/one-pot.js",
     "verify-guard": "node scripts/verify-guard.js",

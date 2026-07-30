@@ -5,6 +5,10 @@
 //
 // note: it's a linear walk, so "present" != "reachable". we over-flag on
 // purpose and let the llm second pass sort out the false alarms.
+//
+// the direction we can't be relaxed about is the opposite one - anything that
+// lets a recipient hide code FROM the walk is a false negative, and a firewall
+// doesn't get to fail that way. see stripMetadata for the one that bit us.
 import { publicClient } from '../config.js';
 
 // danger opcodes -> how much risk each one adds to the score
@@ -26,18 +30,86 @@ function pushLen(op) {
   return op - 0x60 + 1;
 }
 
+// a minimal cbor reader - only the subset solc actually emits (a small map of
+// short text keys to byte strings, a version, a bool). returns the index just
+// past the item starting at `i`, or -1 for anything outside that subset. if we
+// can't account for the blob byte for byte, we don't treat it as metadata.
+function cborEnd(b, i) {
+  if (i >= b.length) return -1;
+  const t = b[i];
+  if (t <= 0x17) return i + 1; // small uint
+  if (t === 0x18) return i + 2; // uint8
+  if (t === 0x19) return i + 3; // uint16
+  if (t >= 0x40 && t <= 0x57) return i + 1 + (t - 0x40); // short byte string
+  if (t === 0x58) return i + 2 + (b[i + 1] ?? 0); // byte string, 1-byte length
+  if (t >= 0x60 && t <= 0x77) return i + 1 + (t - 0x60); // short text string
+  if (t === 0x78) return i + 2 + (b[i + 1] ?? 0); // text string, 1-byte length
+  if (t === 0xf4 || t === 0xf5) return i + 1; // false / true
+  if (t >= 0xa0 && t <= 0xa3) { // map of 0-3 pairs
+    let j = i + 1;
+    for (let n = 0; n < (t - 0xa0) * 2; n++) {
+      j = cborEnd(b, j);
+      if (j < 0) return -1;
+    }
+    return j;
+  }
+  return -1;
+}
+
+// does the code before `start` push a constant that lands on a JUMPDEST inside
+// the trailing blob? honest metadata is data - nothing in a contract has any
+// reason to jump into its own ipfs hash. a push that does is the tell that the
+// "metadata" is really code wearing a metadata hat.
+function jumpsInto(b, start) {
+  for (let i = 0; i < start; i++) {
+    const op = b[i];
+    if (!isPush(op)) continue;
+    const n = pushLen(op);
+    if (n <= 4) {
+      let v = 0;
+      for (let k = 1; k <= n; k++) v = v * 256 + (b[i + k] ?? 0);
+      if (v >= start && v < b.length && b[v] === 0x5b) return true;
+    }
+    i += n; // skip the immediate
+  }
+  return false;
+}
+
 // solc appends a CBOR metadata blob after the runtime code. the last 2 bytes
-// are its length, and the blob starts with 0xa2 (a cbor map). trim it so we
-// don't walk the ipfs hash bytes as if they were opcodes and false-alarm.
-function stripMetadata(hex) {
+// are its length, and the blob starts with a small cbor map. trimming it stops
+// us walking the ipfs hash bytes as if they were opcodes - random hash bytes
+// hit 0xff / 0xf4 often enough to false-alarm on perfectly honest contracts.
+//
+// but the trim is attacker-facing: both the length field and the marker byte
+// live in code the recipient chose. trusting them means "declare your tail to
+// be metadata and the scanner stops there" - a false NEGATIVE, and that's the
+// one direction this lane can't fail in. so two checks before we cut:
+//   1. the blob has to be structurally valid cbor that accounts for every byte
+//      up to the length field, not just one byte that looks like a map header.
+//   2. even then, we won't cut a blob the code jumps into.
+// returns the body to scan plus whether we caught the tail pretending.
+//
+// known limit: a jump target computed at runtime (push + arithmetic) instead of
+// pushed as a constant still gets past check 2. same linear-scan limitation
+// this whole lane has - it reads instructions, it doesn't execute them.
+//
+// exported so the trim boundary can be asserted directly without a chain, the
+// same way floatPlan is in guard.js - inferring it from a score is unreliable,
+// because whether a trimmed byte was ever walked depends on push alignment.
+export function stripMetadata(hex) {
   const bytes = Buffer.from(hex.slice(2), 'hex');
-  if (bytes.length < 4) return hex;
+  if (bytes.length < 4) return { body: hex, hidden: false };
   const len = bytes[bytes.length - 2] * 256 + bytes[bytes.length - 1];
   const start = bytes.length - 2 - len;
-  if (start > 0 && bytes[start] === 0xa2) {
-    return '0x' + bytes.subarray(0, start).toString('hex');
-  }
-  return hex;
+  if (start <= 0) return { body: hex, hidden: false };
+
+  // not real metadata - scan the whole thing rather than trusting the trailer
+  if (cborEnd(bytes, start) !== bytes.length - 2) return { body: hex, hidden: false };
+
+  // well-formed, but reachable. that's not metadata, that's a hiding place.
+  if (jumpsInto(bytes, start)) return { body: hex, hidden: true };
+
+  return { body: '0x' + bytes.subarray(0, start).toString('hex'), hidden: false };
 }
 
 // walk the code instruction by instruction, counting danger opcodes
@@ -110,7 +182,17 @@ export async function checkBytecode(recipient) {
     };
   }
 
-  const hits = scanOpcodes(stripMetadata(code));
+  // when the tail is only pretending to be metadata, `body` is the untrimmed
+  // code - so whatever it was hiding gets walked like any other instruction.
+  const { body, hidden } = stripMetadata(code);
+  const hits = scanOpcodes(body);
+  if (hidden) {
+    hits.HIDDEN_CODE = {
+      count: 1,
+      score: 60,
+      note: 'the trailing "metadata" blob is jumped into by the code - it is executable, not a solc metadata hash',
+    };
+  }
 
   // if it's a recognized minimal proxy, report that precisely instead of a
   // bare delegatecall - the real signal is "logic is hidden elsewhere".

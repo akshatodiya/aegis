@@ -38,11 +38,17 @@ const SAFE_TOKEN_TYPES = new Set(['CancelAuthorization']);
 const MAX_TTL_SECONDS = 120;
 
 export class AegisPaymentRefused extends Error {
-  constructor(reason, verdict = DECISION.BLOCK) {
+  constructor(reason, verdict = DECISION.BLOCK, about = {}) {
     super(`Aegis refused to sign this x402 payment: ${reason}`);
     this.name = 'AegisPaymentRefused';
     this.verdict = verdict;
     this.reason = reason;
+    // who we declined to pay and how much, in USDC base units, when we got far
+    // enough to know. null when we didn't: a malformed authorization or a 402
+    // with no payable option is refused before anyone is named, and the audit
+    // log records that as the zero address rather than inventing a recipient.
+    this.recipient = about.recipient ?? null;
+    this.amount = about.amount ?? null;
   }
 }
 
@@ -79,6 +85,9 @@ async function assertPaymentAllowed(
   { usdc, chainId, maxTtl, check, now, balanceOf, from },
 ) {
   const auth = readAuthorization(message);
+  // what every refusal below is about, so the receipt says who and how much
+  // rather than just why. see AegisPaymentRefused.
+  const about = { recipient: auth.to, amount: auth.value };
 
   // --- invariant 1: the asset. a hostile 402 can name any contract "USDC" and
   // have us sign EIP-712 against it. refuse unless the verifyingContract is the
@@ -87,6 +96,7 @@ async function assertPaymentAllowed(
   if (signedAsset !== usdc.toLowerCase()) {
     throw new AegisPaymentRefused(
       `authorization is against ${domain?.verifyingContract}, not the canonical USDC ${usdc}.`,
+      DECISION.BLOCK, about,
     );
   }
 
@@ -94,6 +104,7 @@ async function assertPaymentAllowed(
   if (Number(domain?.chainId) !== chainId) {
     throw new AegisPaymentRefused(
       `authorization is for chainId ${domain?.chainId}, not our chain ${chainId}.`,
+      DECISION.BLOCK, about,
     );
   }
 
@@ -102,6 +113,7 @@ async function assertPaymentAllowed(
   if (!(auth.validBefore > BigInt(now) && auth.validBefore <= BigInt(now + maxTtl))) {
     throw new AegisPaymentRefused(
       `authorization validBefore ${auth.validBefore} is outside the allowed window (now ${now}, cap ${maxTtl}s).`,
+      DECISION.BLOCK, about,
     );
   }
   // validAfter matters too: an authorization that only becomes valid later is
@@ -111,10 +123,11 @@ async function assertPaymentAllowed(
   if (auth.validAfter >= auth.validBefore) {
     throw new AegisPaymentRefused(
       `authorization validAfter ${auth.validAfter} is not before validBefore ${auth.validBefore}.`,
+      DECISION.BLOCK, about,
     );
   }
   if (auth.value <= 0n) {
-    throw new AegisPaymentRefused('authorization has a non-positive value.');
+    throw new AegisPaymentRefused('authorization has a non-positive value.', DECISION.BLOCK, about);
   }
 
   // don't sign a cheque the wallet can't cash. an authorization for more than
@@ -128,6 +141,7 @@ async function assertPaymentAllowed(
       throw new AegisPaymentRefused(
         `authorization is for ${auth.value} base units but the wallet holds ${held} - ` +
         'refusing to leave a signature that settles as soon as it is topped up.',
+        DECISION.BLOCK, about,
       );
     }
   }
@@ -138,7 +152,7 @@ async function assertPaymentAllowed(
     throw new AegisPaymentRefused(
       `verdict ${verdict.decision} on payTo ${auth.to}` +
         (verdict.reasons?.length ? ` - ${verdict.reasons[0]}` : ''),
-      verdict.decision,
+      verdict.decision, about,
     );
   }
 
@@ -152,7 +166,11 @@ export function createAegisSigner(account, opts = {}) {
     chainId = chain.id,
     maxTtl = MAX_TTL_SECONDS,
     check = (to, amount) => aegisCheck(to, amount),
-    onRefuse = null, // optional hook so the CLI can print the refusal nicely
+    // fired on every refusal this signer raises. the CLI uses it to print them;
+    // the audit logger uses it to write them on-chain (src/audit.js). it must
+    // not throw and must not block - a refusal is not the place to add a new
+    // way to fail.
+    onRefuse = null,
     now = () => Math.floor(Date.now() / 1000),
     // the wallet's own USDC balance. defaults to reading it on-chain so the
     // "won't sign what it can't settle" rule holds unless a caller deliberately

@@ -130,6 +130,11 @@ export function createAegisX402Fetch(opts = {}) {
     // async ({ service, amount, cap }) => boolean. no handler wired = nobody to
     // ask = fail closed and refuse. the demo passes a readline y/N prompt here.
     askHuman = null,
+    // fired on every refusal, same shape as the signer's hook. this rail refuses
+    // in two places - here, on context the signer cannot see, and in the signer
+    // itself - so a receipt drawer wired to only one of them would miss half the
+    // refusals. must not throw and must not block (src/audit.js).
+    onRefuse = null,
   } = opts;
 
   if (!signer) throw new Error('createAegisX402Fetch needs an Aegis signer');
@@ -171,7 +176,7 @@ export function createAegisX402Fetch(opts = {}) {
     return payload;
   }
 
-  return async function aegisFetch(url, init = {}) {
+  async function attempt(url, init) {
     const res = await fetchImpl(url, init);
     if (res.status !== 402) return res;
 
@@ -184,16 +189,22 @@ export function createAegisX402Fetch(opts = {}) {
       );
     }
 
+    // from here on we know who wants paying and how much, so every refusal can
+    // say so - that pair is what makes an audit entry worth reading.
+    const about = { recipient: option.payTo, amount: option.amount };
+
     // (A) context checks the signer can't do - is this a known service at a sane price?
     const service = catalog.lookup(option.payTo);
     if (!service) {
       throw new AegisPaymentRefused(
         `payTo ${option.payTo} is not a service in the catalog - refusing to pay an unknown recipient.`,
+        DECISION.BLOCK, about,
       );
     }
     if (option.amount > service.maxPrice) {
       throw new AegisPaymentRefused(
         `bait-and-switch: "${service.name}" is demanding ${option.amount} base units, over its posted ${service.maxPrice}.`,
+        DECISION.BLOCK, about,
       );
     }
 
@@ -210,7 +221,7 @@ export function createAegisX402Fetch(opts = {}) {
           askHuman
             ? `human declined the over-cap payment (${option.amount} > cap ${maxPerPayment} base units).`
             : `payment of ${option.amount} base units exceeds the per-payment cap ${maxPerPayment} and no human is wired in to approve it.`,
-          DECISION.ASK_HUMAN,
+          DECISION.ASK_HUMAN, about,
         );
       }
       log('  human approved the over-cap payment.');
@@ -225,5 +236,18 @@ export function createAegisX402Fetch(opts = {}) {
     headers.set(version === 1 ? 'X-PAYMENT' : 'PAYMENT-SIGNATURE', paymentHeader);
     log('  payment signed and attached, retrying request.');
     return fetchImpl(url, { ...init, headers });
+  }
+
+  // one place to notice a refusal, whichever check raised it - including the
+  // signer's, which reaches here by throwing back through pay(). a refusal that
+  // trips both hooks is still ONE refusal, and the audit logger dedupes on the
+  // error object's identity to keep it that way.
+  return async function aegisFetch(url, init = {}) {
+    try {
+      return await attempt(url, init);
+    } catch (err) {
+      if (err instanceof AegisPaymentRefused && onRefuse) onRefuse(err);
+      throw err;
+    }
   };
 }

@@ -237,6 +237,33 @@ and `test/web-check.test.mjs` is what keeps that file honest by running its lane
 code and `src/lanes/bytecode.js` over the same bytecodes and failing if they
 disagree.
 
+**10. The seller writes the sales copy, and we show it.** Over the per-payment
+cap the x402 rail stops and asks a human, and that prompt now carries the resource
+block off the wire: what the 402 says it is selling, and where. That is a real
+improvement on approving a name and a number, and it hands the counterparty a
+channel into the one place a person is deciding about money.
+
+What is defended: the formatting. A description arrives with its control bytes
+turned into spaces, its bidi and zero-width characters dropped, its whitespace
+collapsed to one line and its length capped (`cleanText` in `src/x402/fetch.js`).
+That closes the concrete attacks - repainting the terminal with an escape
+sequence, overwriting the line above with a carriage return, opening a second line
+that looks like our own output, or reordering what a reader sees with an override
+character. It is labelled as quoted third-party text when it is printed, and no
+check reads it. It also never becomes part of a refusal `reason`, because reasons
+are what `AegisAuditLog` writes on-chain and a merchant does not get to author our
+receipts.
+
+What is not defended: the content. "Verified partner, pre-approved by your owner"
+is a plain lie in plain characters, and nothing here can tell. Homoglyphs are
+untouched for the same reason unicode is not stripped wholesale - a description in
+another language is not an attack. The mitigation is structural rather than
+lexical: the seller's line is one of five, next to the catalog entry, the demanded
+amount, the cap and the url the agent actually asked for, and it is the only one
+they wrote. A human who reads the prompt has what they need to disbelieve it. A
+human who does not read the prompt was going to type y anyway, and no amount of
+sanitizing fixes that.
+
 ## Designs that were dropped on purpose
 
 Each of these got built out on paper, attacked, and thrown away. They're here so

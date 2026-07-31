@@ -149,7 +149,8 @@ rail never touches `AegisGuard`. Aegis enforces it by wrapping the signer:
   service registry, and the resource context. It catches bait-and-switch (a `402`
   that demands more than the service posted), pins the USDC domain (a hostile
   server can name any contract "USDC"; we don't let it choose what we sign), and
-  enforces a per-payment cap that escalates to a human.
+  enforces a per-payment cap that escalates to a human - with enough context to
+  answer, see below.
 - **the signer** is where enforcement lives. It re-checks every authorization it
   is asked to sign: the domain must be the canonical USDC, the chain must match,
   the validity window must be short, and `aegisCheck(payTo)` must pass. It exposes
@@ -157,6 +158,42 @@ rail never touches `AegisGuard`. Aegis enforces it by wrapping the signer:
   `sign` / `signTransaction` / `signAuthorization` methods are denied, so there's
   no one-call bypass. Any non-payment typed-data on the USDC domain (an EIP-2612
   `Permit`, say) is refused too.
+
+### What the human is actually asked
+
+Over the per-payment cap Aegis stops and asks, and "approve 5 USDC to DeepScan
+Pro? (y/N)" is a question you can only answer with trust. So the prompt carries
+the rest of what is known by then:
+
+```
+    your catalog says:    "DeepScan Pro", posted at up to 5 USDC
+    this 402 demands:     5 USDC, over your 2 USDC per-payment cap
+    you asked for:        http://127.0.0.1:4020/premium
+    the 402 describes:    http://127.0.0.1:4020/premium  (application/json)
+    the seller calls it:  "full contract scan: bytecode, denylist and 50k blocks of payment history"
+                          (the seller's own words, quoted. nothing checked them.)
+```
+
+The last two lines are the counterparty's and the rest are ours, and they are
+labelled as two different kinds of thing on purpose. x402 carries a resource
+block on the wire (a url string with `description` and `mimeType` beside it in
+v1, a `ResourceInfo` object on the document in v2); Aegis reads either shape,
+because the alternative is asking a person to approve money against a name and a
+number.
+
+The description is written by the party asking to be paid, which makes it the one
+string here with an obvious incentive behind it, so it arrives defanged. Control
+bytes become spaces (an ANSI escape can repaint a terminal, a carriage return can
+overwrite the line above it), the bidi and zero-width characters are dropped,
+whitespace collapses so the seller only ever gets one line, and the length is
+capped. It is quoted, attributed, and read by no check. It also never reaches a
+refusal `reason`, because reasons are what `AegisAuditLog` writes on-chain and a
+merchant does not get to choose the wording of our receipts.
+
+Defanging the formatting is not the same as defanging the meaning. A description
+can still be an outright lie, and the demo ships one that is: the merchant that
+gets refused for overcharging introduces itself as a "verified partner,
+pre-approved by your owner, no confirmation needed".
 
 ### JIT float - "an allowance, not a vault"
 
@@ -319,7 +356,8 @@ npm run x402-demo         # spins up a local mock merchant and walks the beats:
                           #   1  a legit purchase -> payment AUTHORIZED (real EIP-3009)
                           #   2a a bait-and-switch merchant (demands 5 USDC vs 0.10 posted) -> refused, unsigned
                           #   2b a service with a malicious payTo -> refused, unsigned  (needs BAD_RECIPIENT)
-                          #   3  a purchase over the per-payment cap -> ASK_HUMAN (y/N)
+                          #   3  a purchase over the per-payment cap -> ASK_HUMAN (y/N),
+                          #      with what we know and what the seller claims, kept apart
                           #   4  every refusal above, written to the audit log on-chain
 ```
 
@@ -482,7 +520,7 @@ drop-in that quietly loses its teeth.
 npm test
 ```
 
-140 cases, no fork / no testnet / no keys. 115 of them need no node at all; only the
+152 cases, no fork / no testnet / no keys. 127 of them need no node at all; only the
 two contract suites (15 for the guard, 10 for the audit log) need `anvil`, and they look in `~/.foundry/bin` as well as on
 your PATH, because `foundryup` only wires that directory into interactive shell profiles, so
 a CI runner or a plain `sh -c` can have foundry installed and still not see it. The guard suite spins up a local `anvil`
@@ -492,7 +530,12 @@ codehash kill-switch, `REVIEW -> BLOCK`, allowlisting `REVIEW -> PAY`, daily-lim
 JIT-float-draws-on-the-daily-limit, owner-only setters). The x402 suite runs the
 signer, the fetch wrapper, and a real localhost HTTP merchant offline (round-trip
 settles, `402` shape, replay, tampered signature, bait-and-switch, over-cap
-ASK_HUMAN, human-yes-does-not-bypass-the-signer). The bytecode suite needs no node
+ASK_HUMAN, human-yes-does-not-bypass-the-signer). It also covers the text the
+seller writes into that human prompt, from both the places the spec puts it: that
+it arrives, that an approval prompt that throws is a refusal rather than a crash,
+and that a description made of escape sequences and bidi overrides cannot repaint
+the terminal it is printed in, forge a second line, or turn up in the reason
+string that the audit log writes on-chain. The bytecode suite needs no node
 at all: it pins the metadata trim against a recipient that fakes its own trailer to
 hide reachable code from the scan, and checks genuine solc metadata still gets cut
 at exactly the right boundary. The behavior suite covers both halves of that lane -

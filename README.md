@@ -41,7 +41,7 @@ Everything below is deployed and exercised on Arc testnet
 | `HoneypotVault` | [`0x9a0d…de9c`](https://testnet.arcscan.app/address/0x9a0da68c0f9654bd7110e928f229b7c4c216de9c) | the demo villain (see below) |
 | `AegisAuditLog` | [`0xbce4…7659`](https://testnet.arcscan.app/address/0xbce4621b1347940bf7930707f83c6a5d1e797659) | the x402 rail's receipts - records refusals, enforces nothing |
 
-Three receipts a judge can open:
+Four receipts a judge can open:
 
 - **a hijacked agent tries to drain the treasury and the chain says no** -
   [reverted `guardedPay`](https://testnet.arcscan.app/tx/0xfe0434b5190fdda2d294296162903b13e0e78fb5717257b23e73160ceb5b8ade).
@@ -55,6 +55,11 @@ Three receipts a judge can open:
   a merchant demanding 50x its posted price. Nothing was broadcast, because
   nothing was signed - so this entry is a receipt written afterwards, not the
   refusal itself. The difference matters and is spelled out below.
+- **the owner shutting the agent off, live** -
+  [`setAgent(agent, false)`](https://testnet.arcscan.app/tx/0xb426ad1fa66a9cc1eabd43234b2e6011739aebaba644dad8cb15688dcde38cba),
+  and then [the same payment refused](https://testnet.arcscan.app/tx/0x34faa65566982338dadd69b8ef8bf2c48e0ddeeab2a254811e4700aa080cd73a)
+  seconds later, to a recipient the guard still called clear. It burnt 24,259
+  gas: it reverted on `guardedPay`'s first line, before policy was read at all.
 
 And one thing to run rather than read:
 **[check any address yourself](https://anon1one.github.io/aegis/web/check.html)**.
@@ -447,6 +452,45 @@ npm run drain             # a prompt-injected agent skips Aegis and calls guarde
 call actually gets mined instead of being caught by the wallet's pre-flight gas
 estimate - the point is the on-chain receipt.
 
+### And when you suspect the agent itself
+
+Every beat above answers "what stops a bad payment". This one answers the
+question after it, which is the one an operator actually has: the agent is
+behaving oddly, you do not yet know why, what do you do?
+
+```bash
+npm run kill-switch       # owner revokes the agent live, the same payment that
+                          #   worked a moment ago now reverts, then it restores
+npm run kill-switch -- --stay      # revoke and leave it revoked (the real thing)
+npm run kill-switch -- --restore   # put it back when the incident is over
+```
+
+One owner transaction, no redeploy and no migration. What makes it a kill switch
+rather than one more rule is the ordering: `guardedPay` checks `isAgent` on its
+first line and only then calls `assess`, so a revoked agent is refused with
+`NotAgent` before policy is evaluated at all. Every other rule in the guard needs
+the *recipient* to look wrong - denylisted, unvetted, over the cap. This one
+needs nothing to look wrong, which is exactly the situation you are in when you
+suspect the agent rather than the counterparty. The demo shows that directly: the
+guard still calls the recipient clear, and the payment is refused anyway. Both
+halves are on Arc -
+[the revoke](https://testnet.arcscan.app/tx/0xb426ad1fa66a9cc1eabd43234b2e6011739aebaba644dad8cb15688dcde38cba)
+and [the refusal after it](https://testnet.arcscan.app/tx/0x34faa65566982338dadd69b8ef8bf2c48e0ddeeab2a254811e4700aa080cd73a),
+five seconds apart.
+
+Being straight about the edges, which the run prints too. It stops the treasury
+rail completely and does not touch the x402 rail, where a signature needs no
+permission from the guard - there the kill switch is to stop refilling the float
+and rotate the wallet, and the float on hand is the loss ceiling until you do. It
+claws nothing back. It does not stop the agent burning its own gas balance. And
+it is exactly as good as the owner key, which can also un-revoke.
+
+One trap worth naming, because it reads the other way round: **`setDailyLimit(0)`
+does not freeze spending, it turns the cap off.** `assess` treats zero as "no cap
+configured", so an owner reaching for it mid-incident would remove the only rate
+limit in the contract. The freeze is `setDailyLimit(1)` - one base unit, which
+every payment worth making exceeds. Both directions are pinned by tests.
+
 ## Integrating your own agent
 
 **Treasury rail** - one swap; your agent calls the guard instead of moving USDC
@@ -520,14 +564,19 @@ drop-in that quietly loses its teeth.
 npm test
 ```
 
-152 cases, no fork / no testnet / no keys. 127 of them need no node at all; only the
-two contract suites (15 for the guard, 10 for the audit log) need `anvil`, and they look in `~/.foundry/bin` as well as on
+155 cases, no fork / no testnet / no keys. 127 of them need no node at all; only the
+two contract suites (18 for the guard, 10 for the audit log) need `anvil`, and they look in `~/.foundry/bin` as well as on
 your PATH, because `foundryup` only wires that directory into interactive shell profiles, so
 a CI runner or a plain `sh -c` can have foundry installed and still not see it. The guard suite spins up a local `anvil`
 node, deploys a mock USDC + the guard + the honeypot, and drives every policy path
 through viem (allowed pay, non-agent rejected, denylist, unvetted contract,
 codehash kill-switch, `REVIEW -> BLOCK`, allowlisting `REVIEW -> PAY`, daily-limit,
-JIT-float-draws-on-the-daily-limit, owner-only setters). The x402 suite runs the
+JIT-float-draws-on-the-daily-limit, owner-only setters). It also pins the two
+things the operator-facing kill switch rests on: that revoking a live agent stops
+the payment that worked a moment ago and stops it *before* policy is evaluated,
+so a recipient the guard still calls clear is refused anyway; and that
+`setDailyLimit(0)` removes the cap rather than freezing spending, which is the
+opposite of what someone reaching for it mid-incident would expect. The x402 suite runs the
 signer, the fetch wrapper, and a real localhost HTTP merchant offline (round-trip
 settles, `402` shape, replay, tampered signature, bait-and-switch, over-cap
 ASK_HUMAN, human-yes-does-not-bypass-the-signer). It also covers the text the

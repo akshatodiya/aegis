@@ -133,6 +133,24 @@ the codehash blocks and the daily limit. Ownership transfer is two-step so a
 fat-fingered address can't brick admin, but a stolen owner key rewrites the
 policy. No timelock, no multisig.
 
+That cuts both ways, and the other direction is worth stating because it is the
+whole incident response: the owner key is also the only thing that can revoke a
+compromised agent, in one transaction, with no redeploy (`npm run kill-switch`).
+`guardedPay` checks `isAgent` before it calls `assess`, so revocation refuses
+payments that policy would still approve - it does not depend on the recipient
+looking wrong, which is the point when the thing you suspect is the agent. It
+stops the treasury rail only. On the x402 rail a signature needs no permission
+from the guard, so there the response is to stop refilling the float and rotate
+the wallet, and the float on hand is the loss ceiling until that happens.
+
+One operational footgun in the same area, found while staging that beat and now
+covered by a test: **`setDailyLimit(0)` does not freeze spending.** `assess`
+reads zero as "no cap configured" (`dailyLimit != 0 && ...`), so an owner
+reaching for it under pressure would delete the only rate limit in the contract
+rather than close it. The freeze is `setDailyLimit(1)`: one base unit, which
+every payment worth making exceeds. The contract is verified and deployed, so
+this is documented rather than renamed.
+
 **4. The daily cap allows about 2x in a burst.** It buckets by
 `block.timestamp / 1 days`, so spending the full limit just before UTC midnight
 and again just after moves 2x inside a short window. Fine for a per-day rate

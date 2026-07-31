@@ -275,6 +275,11 @@
         <ul class="pts compact">
           <li>Funds sit in a <b>treasury</b> that approves the guard and nothing else, so a leaked agent key cannot move money outside the policy.</li>
           <li><span class="mono">assess()</span> and the transfer are <b>one call</b>, so there is no gap to swap code between the check and the payment.</li>
+          <li>And when the agent itself is the suspect, one owner transaction revokes it. <span class="mono">guardedPay</span> checks
+            the caller <b>before</b> it reads policy, so payments the guard still calls clear stop too. That is the difference between
+            a kill switch and one more rule.
+            <a href="https://testnet.arcscan.app/tx/0xb426ad1fa66a9cc1eabd43234b2e6011739aebaba644dad8cb15688dcde38cba">The revoke</a>,
+            <a href="https://testnet.arcscan.app/tx/0x34faa65566982338dadd69b8ef8bf2c48e0ddeeab2a254811e4700aa080cd73a">the refusal five seconds later</a>.</li>
         </ul>
         <div class="cards">
           <div class="card">
@@ -391,7 +396,7 @@
         <ul class="pts green compact" style="margin-top:24px">
           <li>Chain <b>5042002</b>, explorer <b>testnet.arcscan.app</b>, USDC as the native gas token.</li>
           <li>The reverted drain, the settled payment and a refused x402 payment are <b>real receipts</b> a judge can open.</li>
-          <li><b>152 tests</b>, no fork and no keys: the guard, the signer, the bytecode lane, and a real localhost x402 merchant.</li>
+          <li><b>155 tests</b>, no fork and no keys: the guard, the signer, the bytecode lane, and a real localhost x402 merchant.</li>
         </ul>
       </div>
     </section>
@@ -443,7 +448,7 @@ const fetch =
               <li>Treasury split off the agent: the hot key holds about 3% of the money, not all of it.</li>
               <li>Refusals on the x402 rail written to an on-chain audit log, so the rail that leaves no transaction still leaves a receipt.</li>
               <li>A one-file page that runs the same lanes in your own browser, so nothing here has to be taken on trust.</li>
-              <li>152 tests, 127 of them needing no node at all.</li>
+              <li>155 tests, 127 of them needing no node at all.</li>
               <li>A written threat model, including the designs that were attacked and dropped.</li>
             </ul>
           </div>

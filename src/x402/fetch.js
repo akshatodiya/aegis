@@ -17,6 +17,7 @@
 import { randomBytes } from 'node:crypto';
 import { AegisPaymentRefused } from './signer.js';
 import { DECISION } from '../aegis.js';
+import { REFUSAL } from '../refusals.js';
 import { chain, addresses, assertAddress, usdcDomain } from '../config.js';
 
 const MAX_TTL_SECONDS = 120;
@@ -190,9 +191,16 @@ export function createAegisX402Fetch(opts = {}) {
     // ASK_HUMAN lane lives for x402: over the cap, we stop and put a human in
     // the loop instead of silently paying or silently dropping.
     maxPerPayment = null,
-    // async ({ service, amount, cap, resource, requestUrl }) => boolean. no
-    // handler wired = nobody to ask = fail closed and refuse. the demo passes a
-    // readline y/N prompt here.
+    // async ({ service, amount, cap, resource, requestUrl }) => true | false | null.
+    // no handler wired = nobody to ask = fail closed and refuse. the demo passes
+    // a readline y/N prompt here.
+    //
+    // Only `true` approves. Anything else does not, and the three outcomes are
+    // told apart because they are not the same event: `false` is a person who
+    // said no, `null` (or undefined) is a handler saying nobody was there to
+    // ask - an unattended run, a closed tty - and a throw is the prompt itself
+    // breaking. They refuse identically and they carry different codes, because
+    // "retry when someone is around" is only sound advice for one of them.
     //
     // `service` is what our own catalog says it is; `resource` is what the
     // seller says it is selling, cleaned by cleanText and possibly null. Both
@@ -258,6 +266,7 @@ export function createAegisX402Fetch(opts = {}) {
     if (!option) {
       throw new AegisPaymentRefused(
         `no acceptable payment option (need exact scheme on chain ${chainId} in USDC ${usdc}).`,
+        DECISION.BLOCK, { code: REFUSAL.NO_PAYABLE_OPTION },
       );
     }
 
@@ -277,13 +286,13 @@ export function createAegisX402Fetch(opts = {}) {
     if (!service) {
       throw new AegisPaymentRefused(
         `payTo ${option.payTo} is not a service in the catalog - refusing to pay an unknown recipient.`,
-        DECISION.BLOCK, about,
+        DECISION.BLOCK, { ...about, code: REFUSAL.UNKNOWN_SERVICE },
       );
     }
     if (option.amount > service.maxPrice) {
       throw new AegisPaymentRefused(
         `bait-and-switch: "${service.name}" is demanding ${option.amount} base units, over its posted ${service.maxPrice}.`,
-        DECISION.BLOCK, about,
+        DECISION.BLOCK, { ...about, code: REFUSAL.OVER_POSTED_PRICE },
       );
     }
 
@@ -292,17 +301,17 @@ export function createAegisX402Fetch(opts = {}) {
     // STILL run its own checks after a yes; approval here doesn't bypass hook B.
     if (maxPerPayment != null && option.amount > maxPerPayment) {
       log(`  "${service.name}" costs ${option.amount} base units, over the ${maxPerPayment} per-payment cap - asking a human.`);
-      let approved = false;
+      let answer = null;
       let promptFailed = null;
       if (askHuman) {
         try {
-          approved = Boolean(await askHuman({
+          answer = await askHuman({
             service,
             amount: option.amount,
             cap: maxPerPayment,
             resource,
             requestUrl: href(url),
-          }));
+          });
         } catch (err) {
           // a prompt that breaks is not a yes. it also isn't nothing: let the
           // throw escape as-is and this stops being an AegisPaymentRefused, so
@@ -311,15 +320,23 @@ export function createAegisX402Fetch(opts = {}) {
           promptFailed = err?.shortMessage || err?.message || String(err);
         }
       }
-      if (!approved) {
-        throw new AegisPaymentRefused(
-          promptFailed
-            ? `the over-cap approval prompt failed (${promptFailed}) - nobody answered, so this is a no.`
-            : askHuman
-              ? `human declined the over-cap payment (${option.amount} > cap ${maxPerPayment} base units).`
-              : `payment of ${option.amount} base units exceeds the per-payment cap ${maxPerPayment} and no human is wired in to approve it.`,
-          DECISION.ASK_HUMAN, about,
-        );
+      if (answer !== true) {
+        // one condition, several different things to do about it, so several
+        // codes: "nobody was there" is worth retrying once someone is, and "a
+        // person said no" is emphatically not.
+        const overCap = `${option.amount} > cap ${maxPerPayment} base units`;
+        const [reason, code] = promptFailed
+          ? [`the over-cap approval prompt failed (${promptFailed}) - nobody answered, so this is a no.`,
+            REFUSAL.APPROVER_FAILED]
+          : !askHuman
+            ? [`payment of ${option.amount} base units exceeds the per-payment cap ${maxPerPayment} and no human is wired in to approve it.`,
+              REFUSAL.NO_APPROVER]
+            : answer == null
+              ? [`nobody was available to approve the over-cap payment (${overCap}).`,
+                REFUSAL.NO_APPROVER]
+              : [`human declined the over-cap payment (${overCap}).`,
+                REFUSAL.HUMAN_DECLINED];
+        throw new AegisPaymentRefused(reason, DECISION.ASK_HUMAN, { ...about, code });
       }
       log('  human approved the over-cap payment.');
     }

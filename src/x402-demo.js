@@ -91,8 +91,11 @@ async function confirmHuman({ service, amount, cap, resource, requestUrl }) {
 
   const q = `approve paying ${fmt(amount)} USDC to "${service.name}"?`;
   if (!process.stdin.isTTY) {
+    // null, not false: nobody was asked, so nobody declined. the wrapper records
+    // those as different refusals (NO_APPROVER vs HUMAN_DECLINED) and it is worth
+    // keeping them apart - one of them is a person's decision.
     console.log(`\n  (${q} - no human at the keyboard, defaulting to no.)`);
-    return false;
+    return null;
   }
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
@@ -110,7 +113,7 @@ async function expectRefusal(aegisFetch, url) {
     console.log('\n  !! the payment went through - this beat should have refused. bug.');
   } catch (err) {
     if (!(err instanceof AegisPaymentRefused)) throw err;
-    console.log(`\n  REFUSED (${err.verdict}): ${err.reason}`);
+    console.log(`\n  REFUSED (${err.verdict}${err.code ? ` / ${err.code}` : ''}): ${err.reason}`);
     // what it said about itself, if it said anything. printed after the verdict
     // and never inside it: the refusal is ours, the sales copy is theirs.
     if (err.resource?.description) {
@@ -266,7 +269,7 @@ async function main() {
       console.log(`\n  human said yes - got the product: ${JSON.stringify(b.data)}`);
     } catch (err) {
       if (!(err instanceof AegisPaymentRefused)) throw err;
-      console.log(`\n  REFUSED (${err.verdict}): ${err.reason}`);
+      console.log(`\n  REFUSED (${err.verdict}${err.code ? ` / ${err.code}` : ''}): ${err.reason}`);
       console.log('  over the cap, no human approval - so no signature. fail closed.');
     }
 

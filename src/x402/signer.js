@@ -24,6 +24,7 @@
 // for. We don't claim otherwise.
 import { erc20Abi } from 'viem';
 import { aegisCheck, DECISION } from '../aegis.js';
+import { REFUSAL } from '../refusals.js';
 import { chain, addresses, assertAddress, publicClient } from '../config.js';
 
 // EIP-3009 primary types that move value - each must clear policy.
@@ -43,6 +44,9 @@ export class AegisPaymentRefused extends Error {
     this.name = 'AegisPaymentRefused';
     this.verdict = verdict;
     this.reason = reason;
+    // the same refusal as a word a program can switch on (src/refusals.js). it
+    // labels the reason, it never replaces it, and nothing here reads it back.
+    this.code = about.code ?? null;
     // who we declined to pay and how much, in USDC base units, when we got far
     // enough to know. null when we didn't: a malformed authorization or a 402
     // with no payable option is refused before anyone is named, and the audit
@@ -71,7 +75,10 @@ function safeBig(x, field) {
   try {
     return BigInt(x);
   } catch {
-    throw new AegisPaymentRefused(`malformed ${field} in the authorization.`);
+    throw new AegisPaymentRefused(
+      `malformed ${field} in the authorization.`,
+      DECISION.BLOCK, { code: REFUSAL.MALFORMED_AUTHORIZATION },
+    );
   }
 }
 
@@ -102,7 +109,7 @@ async function assertPaymentAllowed(
   if (signedAsset !== usdc.toLowerCase()) {
     throw new AegisPaymentRefused(
       `authorization is against ${domain?.verifyingContract}, not the canonical USDC ${usdc}.`,
-      DECISION.BLOCK, about,
+      DECISION.BLOCK, { ...about, code: REFUSAL.WRONG_ASSET },
     );
   }
 
@@ -110,7 +117,7 @@ async function assertPaymentAllowed(
   if (Number(domain?.chainId) !== chainId) {
     throw new AegisPaymentRefused(
       `authorization is for chainId ${domain?.chainId}, not our chain ${chainId}.`,
-      DECISION.BLOCK, about,
+      DECISION.BLOCK, { ...about, code: REFUSAL.WRONG_CHAIN },
     );
   }
 
@@ -119,7 +126,7 @@ async function assertPaymentAllowed(
   if (!(auth.validBefore > BigInt(now) && auth.validBefore <= BigInt(now + maxTtl))) {
     throw new AegisPaymentRefused(
       `authorization validBefore ${auth.validBefore} is outside the allowed window (now ${now}, cap ${maxTtl}s).`,
-      DECISION.BLOCK, about,
+      DECISION.BLOCK, { ...about, code: REFUSAL.VALIDITY_WINDOW },
     );
   }
   // validAfter matters too: an authorization that only becomes valid later is
@@ -129,11 +136,14 @@ async function assertPaymentAllowed(
   if (auth.validAfter >= auth.validBefore) {
     throw new AegisPaymentRefused(
       `authorization validAfter ${auth.validAfter} is not before validBefore ${auth.validBefore}.`,
-      DECISION.BLOCK, about,
+      DECISION.BLOCK, { ...about, code: REFUSAL.VALIDITY_WINDOW },
     );
   }
   if (auth.value <= 0n) {
-    throw new AegisPaymentRefused('authorization has a non-positive value.', DECISION.BLOCK, about);
+    throw new AegisPaymentRefused(
+      'authorization has a non-positive value.',
+      DECISION.BLOCK, { ...about, code: REFUSAL.BAD_AMOUNT },
+    );
   }
 
   // don't sign a cheque the wallet can't cash. an authorization for more than
@@ -147,7 +157,7 @@ async function assertPaymentAllowed(
       throw new AegisPaymentRefused(
         `authorization is for ${auth.value} base units but the wallet holds ${held} - ` +
         'refusing to leave a signature that settles as soon as it is topped up.',
-        DECISION.BLOCK, about,
+        DECISION.BLOCK, { ...about, code: REFUSAL.EXCEEDS_BALANCE },
       );
     }
   }
@@ -158,7 +168,9 @@ async function assertPaymentAllowed(
     throw new AegisPaymentRefused(
       `verdict ${verdict.decision} on payTo ${auth.to}` +
         (verdict.reasons?.length ? ` - ${verdict.reasons[0]}` : ''),
-      verdict.decision, about,
+      // the engine already named which lane refused; carrying its code through
+      // is the difference between "policy said no" and "denylisted".
+      verdict.decision, { ...about, code: verdict.code ?? REFUSAL.UNKNOWN },
     );
   }
 
@@ -204,6 +216,7 @@ export function createAegisSigner(account, opts = {}) {
         // model (Permit / approve-by-sig / anything new). refuse it.
         throw new AegisPaymentRefused(
           `signing '${primaryType}' typed-data on the guarded USDC is disabled (fund-moving primitive).`,
+          DECISION.BLOCK, { code: REFUSAL.FUND_MOVING_PRIMITIVE },
         );
       }
     } catch (err) {
@@ -215,7 +228,10 @@ export function createAegisSigner(account, opts = {}) {
   }
 
   const deny = (what) => () => {
-    const err = new AegisPaymentRefused(`${what} is disabled on the Aegis signer.`);
+    const err = new AegisPaymentRefused(
+      `${what} is disabled on the Aegis signer.`,
+      DECISION.BLOCK, { code: REFUSAL.DISABLED_PRIMITIVE },
+    );
     if (onRefuse) onRefuse(err);
     throw err;
   };

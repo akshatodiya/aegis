@@ -11,6 +11,7 @@ import { checkBytecode } from './lanes/bytecode.js';
 import { checkReputation } from './lanes/reputation.js';
 import { checkBehavior } from './lanes/behavior.js';
 import { reason } from './reasoning.js';
+import { REFUSAL } from './refusals.js';
 
 export const DECISION = {
   PAY: 'PAY',
@@ -33,10 +34,15 @@ export async function aegisCheck(recipient, amount, opts = {}) {
   const reasons = [];
   let decision;
   let llm = null;
+  // the machine-readable half of `reasons`, set on the same branch that decides.
+  // null on a PAY: a code says why this wasn't simply paid, so a payment that
+  // was simply paid has nothing to name. see src/refusals.js.
+  let code = null;
 
   if (reputation.listed === 'deny') {
     // known bad, no point spending an llm call
     decision = DECISION.BLOCK;
+    code = REFUSAL.DENYLISTED;
     reasons.push(`Reputation: ${reputation.reason}`);
   } else if (bytecode.level === 'HIGH') {
     // alarmed -> let the llm decide if it's a real trap or a false alarm
@@ -47,13 +53,16 @@ export async function aegisCheck(recipient, amount, opts = {}) {
     if (!llm.available) {
       // llm down -> trust the deterministic alarm rather than crash
       decision = DECISION.BLOCK;
+      code = REFUSAL.HIGH_BYTECODE;
       reasons.push(`LLM unavailable (${llm.error}); falling back to deterministic BLOCK.`);
     } else if (llm.malicious) {
       decision = DECISION.BLOCK;
+      code = REFUSAL.HIGH_BYTECODE;
       reasons.push(`LLM confirms malicious (${llm.confidence}): ${llm.reason}`);
     } else {
       // llm thinks it's fine but the filter didn't - don't auto-block, ask a human
       decision = DECISION.ASK_HUMAN;
+      code = REFUSAL.LANES_DISAGREE;
       reasons.push(`LLM says likely benign (${llm.confidence}): ${llm.reason}`);
       reasons.push('   (deterministic filter disagreed - surfacing both views to a human.)');
     }
@@ -65,6 +74,7 @@ export async function aegisCheck(recipient, amount, opts = {}) {
     reasons.push('Asking LLM to analyze the contract for the human...');
     llm = await reason({ recipient, bytecode: bytecode.code, hits: bytecode.hits, mode: 'analyze' });
     decision = DECISION.ASK_HUMAN;
+    code = REFUSAL.MEDIUM_BYTECODE;
     if (llm.available) {
       reasons.push(`LLM summary (${llm.confidence}): ${llm.reason}`);
     } else {
@@ -76,6 +86,7 @@ export async function aegisCheck(recipient, amount, opts = {}) {
     reasons.push('Asking LLM to analyze the recipient for the human...');
     llm = await reason({ recipient, bytecode: bytecode.code, hits: bytecode.hits, mode: 'analyze' });
     decision = DECISION.ASK_HUMAN;
+    code = REFUSAL.UNUSUAL_AMOUNT;
     if (llm.available) {
       reasons.push(`LLM summary (${llm.confidence}): ${llm.reason}`);
     } else {
@@ -86,6 +97,7 @@ export async function aegisCheck(recipient, amount, opts = {}) {
     // (a router, an escrow); an open-ended allowance to an EOA is a classic
     // phishing pattern, so pause for a human instead of auto-approving.
     decision = DECISION.ASK_HUMAN;
+    code = REFUSAL.EOA_ALLOWANCE;
     reasons.push('Approving a plain wallet (EOA). Real spenders are normally contracts, so an allowance to an EOA is a common phishing pattern.');
     reasons.push('   Surfacing to a human before the allowance is granted.');
   } else {
@@ -101,7 +113,7 @@ export async function aegisCheck(recipient, amount, opts = {}) {
     if (reputation.listed === 'allow') reasons.push(`Reputation: ${reputation.reason}`);
   }
 
-  return { decision, reasons, lanes, llm, recipient, amount };
+  return { decision, code, reasons, lanes, llm, recipient, amount };
 }
 
 function banner(decision) {
@@ -113,12 +125,14 @@ function banner(decision) {
 }
 
 export function printVerdict(result) {
-  const { decision, reasons, recipient, amount } = result;
+  const { decision, code, reasons, recipient, amount } = result;
   console.log('\n----------------------------------------------');
   console.log(`  AEGIS verdict for ${recipient}`);
   console.log(`  amount: ${amount} USDC`);
   console.log('----------------------------------------------');
-  console.log(`  ${banner(decision)}\n`);
+  // the code next to the banner, not instead of it: one is for grepping and one
+  // is for reading, and the sentences underneath are still the real answer.
+  console.log(`  ${banner(decision)}${code ? `  ${code}` : ''}\n`);
   for (const r of reasons) console.log(`  ${r}`);
   console.log('----------------------------------------------\n');
 }

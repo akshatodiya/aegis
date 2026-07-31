@@ -17,7 +17,7 @@ import { aegisCheck, printVerdict, DECISION } from './aegis.js';
 import { payUSDC } from './pay.js';
 import { approveUSDC } from './approve.js';
 import { createInterface } from 'node:readline/promises';
-import { guardedPay, assessOnChain, recordVerdictOnChain, allowlistOnChain, needsVetting } from './guard.js';
+import { guardedPay, assessOnChain, recordVerdictOnChain, allowlistOnChain, needsVetting, formatAssessment } from './guard.js';
 import { addresses, assertAddress } from './config.js';
 
 const DEFAULT_AMOUNT = 10;
@@ -94,7 +94,7 @@ async function main() {
 //   ASK_HUMAN -> stop and leave it for a person.
 async function runGuard(recipient, amount, result) {
   const before = await assessOnChain(recipient, amount);
-  console.log(`  On-chain AegisGuard.assess(): ${before.verdict} (${before.reason})`);
+  console.log(`  On-chain AegisGuard.assess(): ${formatAssessment(before)}`);
 
   if (result.decision === DECISION.PAY) {
     // the guard is stricter than we are: it won't auto-pay a contract it hasn't
@@ -111,7 +111,7 @@ async function runGuard(recipient, amount, result) {
     } else {
       // on-chain is stricter for some other reason (over the daily limit,
       // denylisted, ...). don't fire a transaction we know would just revert.
-      console.log(`\nOn-chain guard says ${before.verdict} (${before.reason}), not sending.\n`);
+      console.log(`\nOn-chain guard says ${formatAssessment(before)}, not sending.\n`);
     }
     return;
   }
@@ -122,7 +122,7 @@ async function runGuard(recipient, amount, result) {
     console.log(`  ${rec.message}`);
     if (rec.changed) {
       const after = await assessOnChain(recipient, amount);
-      console.log(`  On-chain AegisGuard.assess() now: ${after.verdict} (${after.reason})`);
+      console.log(`  On-chain AegisGuard.assess() now: ${formatAssessment(after)}`);
     }
     console.log('\ntransaction NOT sent, money saved - and the guard now blocks it on its own.\n');
     return;
@@ -148,7 +148,7 @@ async function vetThenPay(recipient, amount) {
   console.log(`  ${vetted.message}`);
 
   const after = await assessOnChain(recipient, amount);
-  console.log(`  On-chain AegisGuard.assess() now: ${after.verdict} (${after.reason})`);
+  console.log(`  On-chain AegisGuard.assess() now: ${formatAssessment(after)}`);
   if (after.verdict !== 'PAY') {
     console.log('\nstill not PAY on-chain, not sending.\n');
     return false;

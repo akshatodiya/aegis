@@ -30,7 +30,8 @@
 import { parseUnits, formatUnits, ContractFunctionRevertedError } from 'viem';
 import { publicClient, requireWallet, addresses, assertAddress, txUrl } from '../src/config.js';
 import { compileGuard } from '../src/compile.js';
-import { usdcBalanceOf } from '../src/guard.js';
+import { usdcBalanceOf, formatAssessment } from '../src/guard.js';
+import { guardReasonCode, guardErrorCode } from '../src/refusals.js';
 
 // the payment used to show the difference. small on purpose: this beat never
 // intends to move money, it intends to show the same call succeeding and then
@@ -46,6 +47,16 @@ function beat(label, title) {
   console.log('==============================================');
 }
 
+// same shape the rest of the project prints an on-chain verdict in: the verdict,
+// its refusal code, and the contract's own words.
+function assessment(verdict, reason) {
+  return formatAssessment({
+    verdict: ['PAY', 'BLOCK', 'REVIEW'][Number(verdict)] ?? String(verdict),
+    reason,
+    code: guardReasonCode(reason),
+  });
+}
+
 // pull the custom error name out of a viem revert (NotAgent, Denied, ...). the
 // point of the beat is WHICH error fires, so "it reverted" isn't enough.
 function revertName(err) {
@@ -56,7 +67,11 @@ function revertName(err) {
   const args = revert.data.args?.length
     ? `(${revert.data.args.map((a) => (typeof a === 'bigint' ? String(a) : a)).join(', ')})`
     : '()';
-  return `${revert.data.errorName}${args}`;
+  // and the same refusal in the vocabulary the off-chain rail uses, where the
+  // contract has one. Denied carries a reason string instead, and that is read
+  // by guardReasonCode where the verdict is printed.
+  const code = guardErrorCode(revert.data.errorName);
+  return `${revert.data.errorName}${args}${code ? ` / ${code}` : ''}`;
 }
 
 async function main() {
@@ -140,7 +155,7 @@ async function main() {
     beat(1, 'the agent is authorized, and this payment is fine');
     const [verdict, reason] = await read('assess', [recipient, value]);
     console.log(`  assess(${recipient}, ${AMOUNT} USDC)`);
-    console.log(`    -> ${['PAY', 'BLOCK', 'REVIEW'][Number(verdict)]} (${reason})`);
+    console.log(`    -> ${assessment(verdict, reason)}`);
 
     // eth_call against exactly the state a transaction would see. nothing is
     // broadcast and nothing moves - the beat is about what changes in beat 3,
@@ -182,7 +197,7 @@ async function main() {
     beat(3, 'the same payment, unchanged, is now refused');
     const [after, afterReason] = await read('assess', [recipient, value]);
     console.log(`  assess(${recipient}, ${AMOUNT} USDC)`);
-    console.log(`    -> ${['PAY', 'BLOCK', 'REVIEW'][Number(after)]} (${afterReason})   <- policy did not change`);
+    console.log(`    -> ${assessment(after, afterReason)}   <- policy did not change`);
 
     let named = null;
     try {

@@ -26,7 +26,10 @@ async function main() {
   }
 
   for (const e of entries) {
-    console.log(`  #${e.id}  ${e.verdict === 'ASK_HUMAN' ? 'ASK_HUMAN' : 'BLOCK    '}  ${e.recipient}`);
+    // the code, where the contract stored one. entries written before refusal
+    // codes existed simply don't have one, and are printed as they always were.
+    const label = `${e.verdict === 'ASK_HUMAN' ? 'ASK_HUMAN' : 'BLOCK    '}${e.code ? `  ${e.code}` : ''}`;
+    console.log(`  #${e.id}  ${label}  ${e.recipient}`);
     console.log(`      ${formatUnits(e.amount, 6)} USDC demanded`);
     console.log(`      ${e.reason}`);
     console.log(`      ${e.url}\n`);

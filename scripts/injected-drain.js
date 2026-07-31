@@ -19,7 +19,7 @@
 // never broadcast - the whole point is the on-chain receipt a judge can open.
 import { parseUnits } from 'viem';
 import { publicClient, requireWallet, addresses, assertAddress, txUrl } from '../src/config.js';
-import { assessOnChain } from '../src/guard.js';
+import { assessOnChain, formatAssessment } from '../src/guard.js';
 import { compileGuard } from '../src/compile.js';
 
 const AMOUNT = 10; // USDC the injected agent tries to sweep out
@@ -41,7 +41,7 @@ async function main() {
   // show what the contract's own policy thinks - this is the wall the tx is
   // about to hit, read straight off the guard's state.
   const pre = await assessOnChain(target, AMOUNT);
-  console.log(`    AegisGuard.assess() on-chain: ${pre.verdict} (${pre.reason})`);
+  console.log(`    AegisGuard.assess() on-chain: ${formatAssessment(pre)}`);
   if (pre.verdict === 'PAY') {
     console.log('\n    guard says PAY for this target - it would NOT revert. aim at the villain');
     console.log('    (BAD_RECIPIENT) or a denylisted address to show the block.\n');

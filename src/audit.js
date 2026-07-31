@@ -27,6 +27,7 @@ import { isAddress } from 'viem';
 import { compileContract } from './compile.js';
 import { publicClient, requireWallet, addresses, assertAddress, txUrl } from './config.js';
 import { DECISION } from './aegis.js';
+import { stampReason, readStamp } from './refusals.js';
 
 const ZERO = '0x0000000000000000000000000000000000000000';
 const MAX_UINT256 = (1n << 256n) - 1n;
@@ -95,11 +96,17 @@ export function refusalEntry(err) {
     amount = 0n;
   }
 
+  // the contract stores one reason string and it is already deployed, so the
+  // refusal code rides at the front of that string rather than in a field of its
+  // own. Being at the front is not cosmetic: trimReason cuts an oversized reason
+  // from the tail, so the code is the part that cannot be truncated away by a
+  // merchant who made the prose long. A refusal with no code is written exactly
+  // as it always was, which is also what every entry already on-chain looks like.
   return {
     recipient,
     amount,
     verdict: err?.verdict === DECISION.ASK_HUMAN ? AUDIT_VERDICT.ASK_HUMAN : AUDIT_VERDICT.BLOCK,
-    reason: trimReason(err?.reason ?? err?.message),
+    reason: trimReason(stampReason(err?.code, err?.reason ?? err?.message)),
   };
 }
 
@@ -217,17 +224,27 @@ export async function readRefusals({ window = WINDOW } = {}) {
     toBlock: 'latest',
   });
 
-  const entries = logs.map((entry) => ({
-    id: entry.args.id,
-    reporter: entry.args.reporter,
-    recipient: entry.args.recipient,
-    amount: entry.args.amount,
-    verdict: Number(entry.args.verdict) === AUDIT_VERDICT.ASK_HUMAN ? DECISION.ASK_HUMAN : DECISION.BLOCK,
-    reason: entry.args.reason,
-    hash: entry.transactionHash,
-    url: txUrl(entry.transactionHash),
-    block: entry.blockNumber,
-  }));
+  const entries = logs.map((entry) => {
+    // split the code back off the front, if there is one. entries written before
+    // codes existed have none, and a reason that merely looks like it starts
+    // with one is left alone - readStamp only recognizes codes we define.
+    const { code, reason } = readStamp(entry.args.reason);
+    return {
+      id: entry.args.id,
+      reporter: entry.args.reporter,
+      recipient: entry.args.recipient,
+      amount: entry.args.amount,
+      verdict: Number(entry.args.verdict) === AUDIT_VERDICT.ASK_HUMAN ? DECISION.ASK_HUMAN : DECISION.BLOCK,
+      code,
+      reason,
+      // what the contract actually stores, before we split it. a reader
+      // comparing this against Arcscan should see the same string.
+      stored: entry.args.reason,
+      hash: entry.transactionHash,
+      url: txUrl(entry.transactionHash),
+      block: entry.blockNumber,
+    };
+  });
 
   return { entries, total, complete: BigInt(entries.length) === total };
 }

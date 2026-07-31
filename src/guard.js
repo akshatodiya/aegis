@@ -6,6 +6,7 @@
 import { parseUnits, formatUnits, erc20Abi, keccak256 } from 'viem';
 import { publicClient, requireWallet, addresses, assertAddress, txUrl, account } from './config.js';
 import { compileGuard } from './compile.js';
+import { guardReasonCode } from './refusals.js';
 
 const VERDICT = ['PAY', 'BLOCK', 'REVIEW']; // matches enum Verdict order
 
@@ -29,7 +30,20 @@ export async function assessOnChain(to, amount) {
     functionName: 'assess',
     args: [to, value],
   });
-  return { verdict: VERDICT[verdict] ?? String(verdict), reason };
+  // the contract answers in prose, because it was written and verified before
+  // the codes existed. mapping its five strings here means an on-chain BLOCK for
+  // a denylisted recipient and an off-chain one carry the same word, which is
+  // the only way "two rails, one policy engine" is checkable rather than a
+  // slogan. anything the map doesn't recognize comes back UNKNOWN, never a
+  // near-match. see src/refusals.js.
+  return { verdict: VERDICT[verdict] ?? String(verdict), reason, code: guardReasonCode(reason) };
+}
+
+// one way to print an on-chain verdict, so the several places that print one all
+// say it the same way: the verdict, the code beside it, and the contract's own
+// prose in brackets. the prose is what the contract actually stores.
+export function formatAssessment({ verdict, reason, code }) {
+  return `${verdict}${code ? ` / ${code}` : ''} (${reason})`;
 }
 
 // one-time setup: approve the guard to pull USDC from us (the treasury) and

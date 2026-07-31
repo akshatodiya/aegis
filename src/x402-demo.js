@@ -13,6 +13,9 @@
 //       contract (needs BAD_RECIPIENT deployed)    check refuses, reason on screen.
 //   3. an expensive-but-honest service over the -> a human gets asked, and their
 //      per-payment cap                             yes/no decides it.
+//   4. every refusal above                      -> written to AegisAuditLog, so
+//                                                  the refusals are as public as
+//                                                  a reverted guardedPay is.
 //
 // what's real here: the 402s cross a socket, every signature is a real EIP-3009
 // authorization against the real Arc USDC, the merchant verifies it the way a
@@ -29,6 +32,7 @@ import { createAegisX402Fetch } from './x402/fetch.js';
 import { createCatalog } from './x402/catalog.js';
 import { createMockMerchant } from './x402/mock-service.js';
 import { ensureFloat, usdcBalanceOf } from './guard.js';
+import { createAuditLogger, AUDIT_VERDICT } from './audit.js';
 
 const PORT = 4020;
 
@@ -140,6 +144,11 @@ async function main() {
   const base = `http://127.0.0.1:${PORT}`;
   console.log(`  mock merchant:      ${base}  (real http; verifies EIP-3009, does not broadcast)`);
 
+  // ---- the receipt drawer. both hooks report refusals to it, and it writes
+  // them to AegisAuditLog so a refusal on this rail leaves something an outsider
+  // can open. off unless AEGIS_AUDIT_LOG is set; it decides nothing either way.
+  const audit = createAuditLogger({ log: (m) => console.log(`  [audit] ${m}`) });
+
   // ---- the guarded agent: one policy engine, two hooks. the signer re-checks
   // everything and runs the full firewall on the payTo before it will sign. ----
   const signer = createAegisSigner(x402Account, {
@@ -148,6 +157,7 @@ async function main() {
       printVerdict(verdict);
       return verdict;
     },
+    onRefuse: audit.onRefuse,
   });
   const aegisFetch = createAegisX402Fetch({
     signer,
@@ -155,6 +165,7 @@ async function main() {
     maxPerPayment: CAP_PER_PAYMENT,
     askHuman: confirmHuman,
     log: (m) => console.log(`  [aegis] ${m}`),
+    onRefuse: audit.onRefuse,
   });
 
   try {
@@ -219,6 +230,31 @@ async function main() {
       if (!(err instanceof AegisPaymentRefused)) throw err;
       console.log(`\n  REFUSED (${err.verdict}): ${err.reason}`);
       console.log('  over the cap, no human approval - so no signature. fail closed.');
+    }
+
+    // ---- beat 4: the refusals above leave something to look at ----
+    beat(4, 'the refusals get a receipt on-chain');
+    if (audit.enabled) {
+      const { entries, logged, failed, skipped } = await audit.flush();
+      console.log(`  ${logged} of ${entries.length} refusals recorded in AegisAuditLog${failed ? `, ${failed} failed` : ''}${skipped ? `, ${skipped} over the run's receipt cap` : ''}:\n`);
+      for (const e of entries) {
+        const label = e.verdict === AUDIT_VERDICT.ASK_HUMAN ? 'ASK_HUMAN' : 'BLOCK';
+        const where = e.url
+          || (e.skipped ? "not recorded: over this run's receipt cap" : `not recorded: ${e.error}`);
+        console.log(`    ${label}  ${fmt(e.amount)} USDC to ${e.recipient}`);
+        console.log(`      ${e.reason}`);
+        console.log(`      ${where}`);
+      }
+      console.log('\n  On the treasury rail a refusal is already public - guardedPay reverts and');
+      console.log('  the failed tx sits on Arcscan. Here the payment was a signature we never');
+      console.log('  made, so there was nothing to point at until now. Read it back any time:');
+      console.log('    npm run audit-log');
+      console.log('  The log records refusals after the fact. It is not a second firewall, and');
+      console.log('  an empty log is not evidence that nothing was refused.');
+    } else {
+      console.log('  (skipped - AEGIS_AUDIT_LOG not set. deploy the log to leave receipts:');
+      console.log('   npm run deploy-audit-log. nothing above changes either way - it records');
+      console.log('   refusals, it does not make them.)');
     }
 
     // ---- the stitch ----

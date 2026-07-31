@@ -24,7 +24,8 @@
     "test": "node --test test/*.test.mjs",
     "x402-demo": "node src/x402-demo.js",
     "sell-demo": "node src/aegis-service-demo.js",
-    "drain": "node scripts/injected-drain.js"
+    "drain": "node scripts/injected-drain.js",
+    "kill-switch": "node scripts/kill-switch.js"
   },
   "keywords": [
     "arc",

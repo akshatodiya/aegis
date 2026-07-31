@@ -109,7 +109,9 @@ async function expectRevert(run, needle) {
     const parts = [err.shortMessage || err.message || String(err)];
     if (revert?.data) {
       parts.push(revert.data.errorName ?? '');
-      parts.push(JSON.stringify(revert.data.args ?? []));
+      // a revert arg can be a uint256, and JSON.stringify throws on a BigInt -
+      // which would swallow the assertion and report a TypeError instead.
+      parts.push(JSON.stringify(revert.data.args ?? [], (_k, v) => (typeof v === 'bigint' ? String(v) : v)));
     }
     const hay = parts.join(' | ');
     assert.ok(hay.includes(needle), `expected revert with "${needle}", got: ${hay}`);

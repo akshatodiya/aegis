@@ -1,4 +1,6 @@
-// compiles and deploys AegisGuard to sepolia.
+// compiles and deploys AegisGuard to whatever chain config.js is pointed at.
+// that's Arc unless CHAIN says otherwise, and it's what put the live guard on
+// Arc testnet.
 //
 //   node scripts/deploy-guard.js [dailyLimitUSDC]
 //

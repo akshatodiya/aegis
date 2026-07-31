@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { parseUnits, encodeAbiParameters } from 'viem';
 import { compileInput } from '../src/compile.js';
-import { requireWallet, addresses, assertAddress } from '../src/config.js';
+import { requireWallet, addresses, assertAddress, chain } from '../src/config.js';
 
 const require = createRequire(import.meta.url);
 const solc = require('solc');
@@ -37,6 +37,17 @@ async function submit(body, key) {
 
 async function main() {
   const { account } = requireWallet();
+  // this one really is Sepolia-only: it posts to Etherscan's v2 API with the
+  // chain id hardcoded above, while the Arc deployment is verified on arcscan.
+  // under the default CHAIN=arc it would otherwise submit the Arc guard address
+  // to a chain that has never seen it and fail with an unhelpful API error.
+  if (chain.id !== CHAIN_ID) {
+    throw new Error(
+      `verify-guard targets Sepolia Etherscan (chain ${CHAIN_ID}), but CHAIN is ${chain.name} (${chain.id}).\n` +
+      '  The Arc guard is verified on testnet.arcscan.app, not here. Set CHAIN=sepolia to verify that deployment.',
+    );
+  }
+
   const usdc = assertAddress('USDC_ADDRESS', addresses.usdc);
   const guard = assertAddress('AEGIS_GUARD', addresses.guard);
   const treasury = account.address;

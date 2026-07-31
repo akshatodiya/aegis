@@ -261,8 +261,9 @@ export async function checkGasFloat(who, { target, min } = {}) {
 // exact same bytecode, not just this one deployment. a plain wallet (or an
 // EIP-7702 delegated EOA, which also carries code) has no code family we'd want
 // to block wholesale, so it's denylisted by address instead. both setters are
-// onlyOwner on-chain, so this needs the guard owner's key - in the demo the
-// deployer is owner + treasury + agent.
+// onlyOwner on-chain, so this needs the guard owner's key. in this deployment
+// the deployer is owner + agent; the treasury was split onto its own key so the
+// guarded funds aren't burnable as gas (see rotate-keys and THREAT-MODEL item 1).
 export async function recordVerdictOnChain(to) {
   const { walletClient, account } = requireWallet();
   const guard = guardAddress();

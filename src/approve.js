@@ -1,4 +1,5 @@
-// grants a USDC spending allowance (erc20 approve) on sepolia.
+// grants a USDC spending allowance (erc20 approve) on whatever chain config.js
+// is pointed at, which is Arc unless CHAIN says otherwise.
 // this is the other way an agent bleeds money: not by sending funds, but by
 // approving a shady spender that drains the wallet later. so aegis runs the
 // spender through the same checks as a payment recipient before we ever sign.

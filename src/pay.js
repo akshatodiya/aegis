@@ -1,4 +1,5 @@
-// sends real USDC (erc20 transfer) on sepolia
+// sends real USDC (erc20 transfer) on whatever chain config.js is pointed at,
+// which is Arc unless CHAIN says otherwise.
 import { parseUnits, erc20Abi } from 'viem';
 import { publicClient, requireWallet, addresses, assertAddress, txUrl } from './config.js';
 

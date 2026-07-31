@@ -5,9 +5,11 @@
 // the ERC-20 window; an ordinary transaction burns it as gas through the native
 // window. Gas is deducted before guardedPay's first opcode runs, so no on-chain
 // rule can bound it. That means "the treasury only approves the guard" is only
-// true while the treasury key never sends anything else - and today treasury,
-// owner and agent are all the same key, so the daily cap governs one of two ways
-// to spend the same money. Separating the roles is what makes the claim true.
+// true while the treasury key never sends anything else. Straight out of
+// deploy-guard the treasury, owner and agent are all one key, so the daily cap
+// governs one of two ways to spend the same money and the other one is free.
+// Separating the roles is what makes the claim true. (Already done on the live
+// Arc deployment; this script is how, and how to redo it on a fresh one.)
 //
 //   treasury  holds the USDC and approves the guard. signs once, then nothing.
 //   owner     sets policy (denylist, codehash blocks, limits). cold.

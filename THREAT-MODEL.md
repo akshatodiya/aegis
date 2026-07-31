@@ -208,6 +208,35 @@ and still print; they just stop being paid for. That is a deliberate trade -
 under attack the log goes incomplete rather than the float going empty - and it
 is the second reason an empty stretch of log proves nothing.
 
+**9. The check page believes whatever the gateway tells it.** `web/check.html`
+runs the deterministic lanes in a reader's browser. It holds no key, signs
+nothing and sends no transaction, and the verdict it prints binds nothing - which
+is why it prints the on-chain `assess` next to its own answer, and says which of
+the two decides.
+
+The exposure worth naming is the input. The page asks a public Arc gateway for
+`eth_getCode` and scans whatever comes back. A gateway that answered with benign
+code for a hostile contract would produce a confident, clean verdict, and the
+page could not tell. Rotating across four gateways buys availability, not
+honesty: whichever one answers first is the one believed.
+
+That is not a weakness the page introduces. The off-chain lane in `src/lanes/`
+reads the same way and has always had the same exposure. It is the clearest
+argument for why the on-chain layer exists at all: `guardedPay` reads
+`to.code.length` and `to.codehash` from chain state inside the transaction, so
+there is no RPC in the loop to lie to it, and no gap between the check and the
+transfer. An analyzer can be fooled about the world. The contract is *in* the
+world it is deciding about.
+
+Two smaller notes. The page has no LLM second pass, because that goes through a
+local CLI; the engine's own behavior when that call is unavailable is to fall
+back to the deterministic verdict, so the page fails to the strict side (a `HIGH`
+bytecode score reads as BLOCK and is never auto-downgraded). And a hosted copy is
+a copy: the artifact anyone can actually audit is the file in this repository,
+and `test/web-check.test.mjs` is what keeps that file honest by running its lane
+code and `src/lanes/bytecode.js` over the same bytecodes and failing if they
+disagree.
+
 ## Designs that were dropped on purpose
 
 Each of these got built out on paper, attacked, and thrown away. They're here so

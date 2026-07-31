@@ -56,6 +56,14 @@ Three receipts a judge can open:
   nothing was signed - so this entry is a receipt written afterwards, not the
   refusal itself. The difference matters and is spelled out below.
 
+And one thing to run rather than read:
+**[check any address yourself](https://anon1one.github.io/aegis/web/check.html)**.
+`web/check.html` is one static file that runs the deterministic lanes in your
+browser against Arc's public RPC, and reads the deployed guard's own `assess`
+next to its answer. No clone, no key, no backend, and nothing loaded from a CDN.
+Paste the honeypot, or one of its clones, or USDC, and watch where the two layers
+agree and where they don't. What it is and is not is on the page itself.
+
 ## How the decision is made
 
 Three checks on the recipient, mapped onto on-chain state in the contract:
@@ -337,6 +345,27 @@ the agent pays at the moment it needs an answer. A firewall that has to be
 installed reaches whoever installs it; one that can be *bought per call* reaches
 any agent that can pay.
 
+### In a browser, with nothing installed
+
+```bash
+open web/check.html          # or just open the hosted copy, linked at the top
+```
+
+One file, no build step, no server, no key, no dependency: it works off a
+`file://` url and it works on GitHub Pages. It runs the same bytecode, reputation
+and behavior lanes the engine runs, then reads `AegisGuard.assess` for the same
+address so you can see both answers at once. They disagree in both directions and
+the page says which one binds each time - a minimal-proxy clone is only MEDIUM to
+an opcode scan and an outright `Block` on-chain, while Permit2 is clear to the
+scan and still `Review` on-chain because the guard has not been told to trust it.
+
+The LLM second pass can't run there (it goes through a local CLI), and the engine
+already has a branch for that: with the LLM unreachable it falls back to the
+deterministic verdict. So the page is the engine in a mode it really has, not a
+simplified retelling of it. `test/web-check.test.mjs` is what keeps that true - it
+lifts the page's script block out of the html and fails if it and
+`src/lanes/bytecode.js` ever return different objects for the same code.
+
 ### Killing a whole family with one write
 
 ```bash
@@ -453,7 +482,7 @@ drop-in that quietly loses its teeth.
 npm test
 ```
 
-116 cases, no fork / no testnet / no keys. 91 of them need no node at all; only the
+140 cases, no fork / no testnet / no keys. 115 of them need no node at all; only the
 two contract suites (15 for the guard, 10 for the audit log) need `anvil`, and they look in `~/.foundry/bin` as well as on
 your PATH, because `foundryup` only wires that directory into interactive shell profiles, so
 a CI runner or a plain `sh -c` can have foundry installed and still not see it. The guard suite spins up a local `anvil`
@@ -475,7 +504,17 @@ stranger can't write, that a `PAY` can't be recorded at all, that nothing lands
 without a reason, and that a merchant can't choose how large an entry is; offline,
 that the logger survives the failure path it lives on - one entry per refusal even
 when both hooks report it, a write that fails recorded rather than thrown, and the
-refusal never waiting on the receipt.
+refusal never waiting on the receipt. The web suite exists because `web/check.html`
+carries a *copy* of the lane code (a browser can't import the modules), and a copy
+agrees with the original on the day it is written and then quietly stops: it lifts
+the page's script block out of the html, runs it and `src/lanes/bytecode.js` over
+the same crafted bytecodes, and fails unless the two return identical objects - and
+then, in a child process with no `claude` on its PATH, checks the page reaches the
+same verdict `aegisCheck` does. The hand-rolled parts get the same treatment
+against viem (keccak-256 over 300 lengths, the EIP-55 checksum, the function
+selectors, the `assess` return decoding), and the page's own UI is driven headlessly
+over a fake DOM and a fake chain, which is how a stale-read race that could leave
+one address's answer under another address's name got caught.
 
 ## Also runs on Sepolia
 

@@ -58,7 +58,7 @@ Three checks on the recipient, mapped onto on-chain state in the contract:
 |------|----------------|------------------|
 | Bytecode | off-chain scan + on-chain code check | reads the recipient's EVM code (live `eth_getCode` on Arc) and flags traps like `SELFDESTRUCT`, `DELEGATECALL`, `CREATE2`, `tx.origin` - and won't let a recipient hide code from the scan behind a faked metadata trailer |
 | Reputation | off-chain, still a mock | hardcoded lists that nothing writes to. The real address lists live in the guard contract (`denylist` / `allowlist`) and are enforced there, not here |
-| Behavior | off-chain, reads the guard's `Paid` logs | how often the guard has actually paid this recipient. Three answers, not two: never, N times, or "couldn't read" - and the third is never reported as the first. Windowed (see below) |
+| Behavior | off-chain, reads the guard's `Paid` logs | how often the guard has actually paid this recipient **and how much**. Three answers, not two: never, N times, or "couldn't read" - and the third is never reported as the first. Windowed (see below) |
 
 Separately, and not part of the three lanes above, the contract enforces a rolling
 **daily spend cap** of its own, so splitting a payment into chunks hits the same
@@ -68,6 +68,16 @@ The behavior lane's window is worth stating: the public Arc gateways reject wide
 `getLogs` ranges, so it scans the most recent 50k blocks rather than all history.
 It says "not paid in recent history", never "never paid". Full history would
 need an indexer, and we don't have one, so we don't imply one.
+
+The lane weighs those payments as well as counting them, and that isn't a detail.
+A lane that only asks "have we paid them before" trusts a number the attacker can
+buy: get one dust payment through - which passes precisely *because* it's small -
+and every later payment to that address reads as a known recipient, at any size.
+So familiarity is capped at 5x the largest payment the guard has actually made to
+them. A $1 history does not clear a $500 transfer; a real payee whose invoices
+grow is left alone. The residual limit is stated in `THREAT-MODEL.md`: an attacker
+who gets one genuinely *large* payment approved has raised the anchor for the next
+one, and the daily cap is what bounds that.
 
 If the bytecode scan gets alarmed or is unsure, the off-chain layer hands the raw
 code to an LLM for a second opinion. It runs through the Claude CLI locally
@@ -394,7 +404,7 @@ drop-in that quietly loses its teeth.
 npm test
 ```
 
-80 cases, no fork / no testnet / no keys. 65 of them need no node at all; only the
+91 cases, no fork / no testnet / no keys. 76 of them need no node at all; only the
 15-case guard suite needs `anvil`, and it looks in `~/.foundry/bin` as well as on
 your PATH, because `foundryup` only wires that directory into interactive shell profiles, so
 a CI runner or a plain `sh -c` can have foundry installed and still not see it. The guard suite spins up a local `anvil`
@@ -407,7 +417,11 @@ settles, `402` shape, replay, tampered signature, bait-and-switch, over-cap
 ASK_HUMAN, human-yes-does-not-bypass-the-signer). The bytecode suite needs no node
 at all: it pins the metadata trim against a recipient that fakes its own trailer to
 hide reachable code from the scan, and checks genuine solc metadata still gets cut
-at exactly the right boundary.
+at exactly the right boundary. The behavior suite covers both halves of that lane -
+the pure verdict, including the dust-payment case below, and the `getLogs` read
+itself against a stub JSON-RPC server, so the block window, the recipient topic
+filter and the 6-decimal conversion are pinned rather than only ever exercised in a
+live demo.
 
 ## Also runs on Sepolia
 

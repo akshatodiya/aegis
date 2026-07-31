@@ -41,19 +41,28 @@ the attacker gets that key directly, there's no second line.
 - A hijacked agent calling `guardedPay` against a flagged recipient. Reverts
   on-chain, verifiable on arcscan.
 - Denylisted recipients, plus byte-identical redeploys in one write via the
-  blocked-codehash switch. Its reach is narrower than "family" suggests, though:
-  it matches the exact runtime artifact, solc metadata trailer and all.
-  Recompiling the same source under a different compiler patch, or with one extra
-  comment, changes that trailer and so the hash. It kills copies. Anything that
-  escapes still lands on the unvetted-contract Review gate.
+  blocked-codehash switch. Both are contract storage read inside `guardedPay`, so
+  they bind the treasury rail only. The x402 rail never calls the guard, so an
+  address blocked on-chain is still screened there by `aegisCheck` and nothing
+  else. Its reach is narrower than "family" suggests, too: it matches the exact
+  runtime artifact, solc metadata trailer and all. Recompiling the same source
+  under a different compiler patch, or with one extra comment, changes that
+  trailer and so the hash. It kills copies. Anything that escapes still lands on
+  the unvetted-contract Review gate.
 - Contract recipients nobody vetted. Those get Review instead of Pay, including
   EIP-7702 delegated EOAs, which carry code and so are treated as must-be-vetted.
 - Spend *rate* on the treasury rail, through the rolling daily cap. Chunking a
   payment hits the same wall, because the cap is accumulated state and not a
   per-transaction check.
 - On the x402 rail: overpriced quotes, unknown payees, unpinned EIP-712 domains,
-  anything over the per-payment cap. The signer refuses before a signature
-  exists, so there's nothing for a facilitator to settle.
+  anything over the per-payment cap. All of it lands before a signature exists, so
+  there's nothing for a facilitator to settle. Worth being exact about which half
+  does what, since this document's whole claim is that enforcement points matter:
+  the *fetch wrapper* holds the service registry, the posted price and the
+  per-payment cap, because those need context a signer doesn't have. The *signer*
+  pins the asset, the chain, the validity window and the `aegisCheck` verdict, and
+  denies the raw signing primitives. A caller that takes the signer alone gets the
+  second list and not the first.
 - Recipient bytecode carrying danger opcodes, minimal-proxy indirection, or a
   trailing blob pretending to be solc metadata (see below).
 
@@ -137,11 +146,20 @@ pair, which blurred two different things:
 
 - *Bytecode* is real: live `eth_getCode` plus an opcode walk, on Arc.
 - *Behavior* is real now too. It reads the guard's own `Paid` events for how many
-  times a recipient has actually been paid, and answers in three states rather
-  than two: never, N times, or "couldn't read". The third is never reported as
-  the first. Its limit is recency: the public Arc gateways reject wide `getLogs`
-  ranges, so it scans a 50k-block window and says "recent history". Full history
-  needs an indexer. There isn't one, and none is implied.
+  times a recipient has actually been paid and how large those payments were, and
+  answers in three states rather than two: never, N times, or "couldn't read". The
+  third is never reported as the first. It has two limits, both real:
+
+  *Recency.* The public Arc gateways reject wide `getLogs` ranges, so it scans a
+  50k-block window and says "recent history". Full history needs an indexer. There
+  isn't one, and none is implied.
+
+  *An approved payment still moves the anchor.* Familiarity is capped at 5x the
+  largest payment the guard has actually made to a recipient, which is what stops
+  a dust payment laundering a large one (see below). But an attacker who gets one
+  genuinely large payment approved has raised that ceiling for the next one. The
+  lane bounds escalation-dodging by a factor, not absolutely, and the daily cap is
+  what bounds the total.
 - *Reputation* is still entirely a mock, two hardcoded maps that nothing writes
   to. No reputation database exists and none is claimed.
 
@@ -251,3 +269,35 @@ The lesson is worth keeping. The first fix was written against the attack that
 had been demonstrated, not the class it belonged to, and a narrow check that
 happens to cover the proof of concept reads exactly like a correct one until
 somebody widens the opcode.
+
+### The behavior lane could be bought for a dollar
+
+Same shape, different lane, and this one was in code written to *fix* a lane that
+had no real data behind it. Reading the guard's `Paid` events was the right move.
+Counting them and throwing the amounts away was not.
+
+`behaviorVerdict` escalated a large payment only when the count was zero, so
+"have we paid this address before" was a yes/no question about a number the
+attacker gets to move. One dust payment, which clears every lane precisely because
+it's small, flipped the answer permanently:
+
+```
+  500 USDC | never paid          -> MEDIUM  escalate, human looks
+    1 USDC | never paid          -> LOW     pays, and they keep it
+  500 USDC | paid 1 time before  -> LOW     pays, nobody looks
+```
+
+The lane's own output said the quiet part out loud: "Amount 500 USDC within
+normal range for this recipient (paid 1 time before)". A dollar of history is not
+a normal range for five hundred.
+
+The amounts were already in the events being read, just discarded on the way out
+of `timesPaid`. Familiarity is now capped at 5x the largest payment the guard has
+actually made to that recipient, so a $1 history doesn't clear $500, while a payee
+whose invoices genuinely grow stays quiet. The dust case, the boundary either side
+of 5x, and the "many small payments don't excuse one big one" case are pinned in
+`test/behavior.test.mjs`, and `test/behavior-logs.test.mjs` now covers the chain
+read itself, including the base-unit conversion, against a stub JSON-RPC server.
+
+The residual limit is above, under item 6, and it's deliberate: this bounds the
+dodge by a factor, it doesn't remove it.

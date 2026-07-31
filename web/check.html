@@ -1,0 +1,1007 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Aegis - check an address</title>
+<meta name="description" content="Run Aegis's deterministic lanes against any address on Arc testnet, from your own browser. No backend, no key, no account." />
+<style>
+  :root {
+    --bg: #f4eee2;
+    --panel: #fbf6ec;
+    --code: #efe7d7;
+    --ink: #241f17;
+    --muted: #746b5b;
+    --faint: #9c9078;
+    --line: #e4dac6;
+    --line2: #d5c9b0;
+    --accent: #b16f1c;
+    --accent-soft: #c98a2e;
+    --green: #3f6b46;
+    --red: #a83f36;
+    --amber: #9a7317;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(940px 620px at 84% -12%, rgba(255, 206, 138, 0.50), transparent 62%),
+      radial-gradient(780px 540px at 8% 114%, rgba(255, 222, 165, 0.34), transparent 58%),
+      var(--bg);
+    background-attachment: fixed;
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px solid rgba(177,111,28,0.35); }
+  a:hover { border-bottom-color: var(--accent); }
+  code, .mono { font-family: var(--mono); }
+
+  .wrap { max-width: 940px; margin: 0 auto; padding: 46px clamp(20px, 5vw, 40px) 80px; }
+
+  .brandmark { font-weight: 700; font-size: 14px; letter-spacing: 0.2px; }
+  .brandmark span { color: var(--faint); font-weight: 500; }
+  h1 { font-size: clamp(31px, 5.2vw, 48px); line-height: 1.06; letter-spacing: -1.4px; margin: 20px 0 0; font-weight: 800; }
+  p.lead { font-size: clamp(15.5px, 1.9vw, 19px); color: var(--muted); max-width: 700px; margin: 16px 0 0; }
+  p.lead b { color: var(--ink); font-weight: 600; }
+  .toplinks { margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .toplinks a { border: 1px solid var(--line2); border-radius: 8px; padding: 7px 13px; font-size: 13.5px; background: var(--panel); color: var(--ink); }
+  .toplinks a:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ---- the form ---- */
+  form.ask { margin: 34px 0 0; display: grid; grid-template-columns: 1fr 130px auto; gap: 10px; align-items: end; }
+  .field label { display: block; font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--faint); font-weight: 600; margin: 0 0 7px; }
+  .field input {
+    width: 100%; font-family: var(--mono); font-size: 14.5px; color: var(--ink);
+    background: var(--panel); border: 1px solid var(--line2); border-radius: 9px; padding: 12px 13px;
+  }
+  .field input:focus { outline: none; border-color: var(--accent-soft); box-shadow: 0 0 0 3px rgba(201,138,46,0.16); }
+  button.go {
+    font-family: var(--sans); font-size: 14.5px; font-weight: 650; color: #fdf8ee;
+    background: var(--accent); border: 1px solid var(--accent); border-radius: 9px;
+    padding: 12px 22px; cursor: pointer;
+  }
+  button.go:hover { background: var(--accent-soft); }
+  button.go[disabled] { opacity: 0.55; cursor: default; }
+
+  .examples { margin: 16px 0 0; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .examples .lab { font-size: 12px; color: var(--faint); letter-spacing: 1.2px; text-transform: uppercase; font-weight: 600; margin-right: 2px; }
+  button.chip {
+    font-family: var(--sans); font-size: 12.5px; color: var(--muted); cursor: pointer;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 11px;
+  }
+  button.chip:hover { border-color: var(--accent-soft); color: var(--ink); }
+
+  .status { margin: 22px 0 0; color: var(--muted); font-size: 14.5px; min-height: 22px; }
+  .status.err { color: var(--red); }
+
+  /* ---- results ---- */
+  #out { margin-top: 30px; }
+  #out[hidden] { display: none; }
+
+  .banner {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px;
+    box-shadow: 0 1px 2px rgba(90,66,26,0.04), 0 10px 28px rgba(120,90,40,0.05);
+    display: flex; gap: 20px; align-items: center; flex-wrap: wrap;
+  }
+  .tag {
+    display: inline-block; font-weight: 700; font-size: 13px; letter-spacing: 1.1px;
+    padding: 8px 15px; border-radius: 7px; border: 1px solid var(--line2); white-space: nowrap;
+  }
+  .tag.pay { color: var(--green); border-color: #b6ccb8; background: #ecf2ec; }
+  .tag.block { color: var(--red); border-color: #d8b3af; background: #f7ece9; }
+  .tag.ask { color: var(--amber); border-color: #ddc79a; background: #f7f1e4; }
+  .banner .who { margin: 0; font-size: 14px; color: var(--muted); word-break: break-all; }
+  .banner .who b { color: var(--ink); font-weight: 600; }
+  .banner .who a { font-family: var(--mono); }
+
+  .reasons { list-style: none; padding: 0; margin: 18px 0 0; }
+  .reasons li { position: relative; padding-left: 20px; margin: 8px 0; color: var(--muted); font-size: 14.5px; }
+  .reasons li::before { content: ""; position: absolute; left: 1px; top: 0.62em; width: 6px; height: 6px; border-radius: 50%; background: var(--accent-soft); }
+  .reasons li b { color: var(--ink); font-weight: 600; }
+
+  .lanes { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 16px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px;
+    box-shadow: 0 1px 2px rgba(90,66,26,0.04), 0 10px 28px rgba(120,90,40,0.05);
+  }
+  .card h3 { margin: 0; font-size: 15.5px; font-weight: 700; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .card .lvl { font-size: 11px; letter-spacing: 1.2px; font-weight: 700; padding: 3px 9px; border-radius: 5px; border: 1px solid var(--line2); color: var(--muted); }
+  .card .lvl.LOW { color: var(--green); border-color: #b6ccb8; background: #ecf2ec; }
+  .card .lvl.MEDIUM { color: var(--amber); border-color: #ddc79a; background: #f7f1e4; }
+  .card .lvl.HIGH { color: var(--red); border-color: #d8b3af; background: #f7ece9; }
+  .card p { margin: 12px 0 0; color: var(--muted); font-size: 14px; }
+  .card p b { color: var(--ink); font-weight: 600; }
+  .card .sub { font-size: 11px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--faint); font-weight: 600; margin: 4px 0 0; }
+  .card.wide { grid-column: 1 / -1; }
+
+  .kv { margin: 14px 0 0; font-size: 13px; }
+  .kv div { display: flex; gap: 10px; padding: 5px 0; border-top: 1px solid var(--line); }
+  .kv div:first-child { border-top: 0; }
+  .kv .k { color: var(--faint); min-width: 122px; }
+  .kv .v { color: var(--ink); font-family: var(--mono); word-break: break-all; }
+
+  details.code { margin-top: 14px; }
+  details.code summary { cursor: pointer; font-size: 13px; color: var(--accent); list-style: none; }
+  details.code summary::-webkit-details-marker { display: none; }
+  details.code summary::before { content: "> "; }
+  details.code[open] summary::before { content: "v "; }
+  details.code pre {
+    background: var(--code); border: 1px solid var(--line); border-radius: 9px; padding: 14px;
+    margin: 12px 0 0; font-size: 12px; line-height: 1.6; color: var(--ink);
+    max-height: 260px; overflow: auto; word-break: break-all; white-space: pre-wrap;
+  }
+
+  /* ---- the honest bit ---- */
+  .notes { margin-top: 46px; border-top: 1px solid var(--line); padding-top: 30px; }
+  .notes h2 { font-size: 21px; margin: 0 0 6px; font-weight: 700; letter-spacing: -0.3px; }
+  .notes ul { list-style: none; padding: 0; margin: 18px 0 0; }
+  .notes li { position: relative; padding-left: 22px; margin: 13px 0; color: var(--muted); font-size: 14.5px; max-width: 780px; }
+  .notes li::before { content: ""; position: absolute; left: 2px; top: 0.62em; width: 7px; height: 7px; border-radius: 50%; background: var(--accent-soft); box-shadow: 0 0 0 3px rgba(201,138,46,0.14); }
+  .notes li b { color: var(--ink); font-weight: 600; }
+  footer { margin-top: 40px; color: var(--faint); font-size: 13px; }
+
+  @media (max-width: 720px) {
+    form.ask { grid-template-columns: 1fr; }
+    .lanes { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <p class="brandmark">Aegis <span>/ check an address</span></p>
+  <h1>Check an address before you pay it.</h1>
+  <p class="lead">This is the deterministic half of the Aegis engine, running <b>in your browser</b>
+    against Arc testnet's public RPC. No backend, no key, no account, and nothing leaves this page
+    but the address itself, in read-only calls to a public gateway. It also asks the deployed
+    <b>AegisGuard</b> what it would do, which is the answer that actually binds.</p>
+
+  <div class="toplinks">
+    <a href="https://github.com/Anon1one/aegis">Source on GitHub</a>
+    <a href="deck.html">The deck</a>
+    <a href="https://testnet.arcscan.app/address/0xb95f9c997235150d5f43b7c05897bb8e0173728d">AegisGuard on Arcscan</a>
+  </div>
+
+  <form class="ask" id="form" autocomplete="off">
+    <div class="field">
+      <label for="addr">Recipient address</label>
+      <input id="addr" name="addr" placeholder="0x..." spellcheck="false" />
+    </div>
+    <div class="field">
+      <label for="amt">Amount (USDC)</label>
+      <input id="amt" name="amt" value="1" spellcheck="false" />
+    </div>
+    <button class="go" id="go" type="submit">Check</button>
+  </form>
+
+  <div class="examples" id="examples">
+    <span class="lab">Try</span>
+  </div>
+
+  <p class="status" id="status"></p>
+
+  <div id="out" hidden></div>
+
+  <section class="notes">
+    <h2>What this page is, and what it is not</h2>
+    <p class="lead" style="font-size:15px">The point of putting it here is that you do not have to
+      take the README's word for anything. Paste an address and watch the same code run.</p>
+    <ul>
+      <li><b>The LLM second pass does not run here.</b> It goes through the <code>claude -p</code>
+        CLI on a local machine, which a browser cannot do. That is not a hole improvised for this
+        page: the engine already has that branch, because the CLI can be missing or time out, and
+        when it is unavailable the engine falls back to the deterministic verdict. So what you see
+        here is the real engine in its LLM-unavailable mode, not a simplified copy of it.</li>
+      <li><b>What that costs you is precision, in one direction.</b> A <code>HIGH</code> bytecode
+        score reads as BLOCK here. With the LLM reachable it stays BLOCK if the model agrees, and
+        becomes ASK_HUMAN if the model thinks the alarm is a false one. The browser never
+        auto-downgrades, so this page is the more paranoid of the two.</li>
+      <li><b>The opcode scan is a linear walk.</b> It tells you a dangerous opcode is present, not
+        that it is reachable. It over-flags on purpose, in the direction where a mistake is cheap.</li>
+      <li><b>The verdict on this page binds nothing.</b> It is an opinion computed in your browser.
+        The verdict that binds is <code>AegisGuard.assess</code>, which runs on Arc inside the
+        transfer, and which the panel above reads live so you can see both.</li>
+      <li><b>Reputation is a mock lane and says so.</b> The lists that are real are the guard's own
+        <code>denylisted</code> and <code>allowedContract</code> mappings on-chain, which show up in
+        the assess result rather than here.</li>
+      <li><b>This page believes whatever the gateway answers.</b> It scans the code an Arc gateway
+        hands back, so a gateway that lied would produce a confident, clean verdict and nothing here
+        could tell. That is true of any off-chain analyzer, including the one in the repo, and it is
+        the clearest reason the on-chain layer exists: <code>guardedPay</code> reads the recipient's
+        code from chain state inside the transaction, with no RPC in the loop to lie to it.</li>
+      <li><b>The lane code on this page is the code in the repo.</b>
+        <code>test/web-check.test.mjs</code> lifts this file's script block out, runs it and
+        <code>src/lanes/bytecode.js</code> over the same bytecodes, and fails if the two ever
+        disagree. Copy-paste that drifts is worse than no copy at all, so it is pinned.</li>
+    </ul>
+  </section>
+
+  <footer>
+    Arc testnet, chain 5042002. Read-only: this page has no wallet, signs nothing and sends no
+    transactions. Built by Akshat Odiya.
+  </footer>
+
+</div>
+
+<!--
+  the engine. deliberately DOM-free and in its own block: test/web-check.test.mjs
+  pulls the text of this script out of the file, imports it in node, and diffs it
+  against src/lanes/*. that only works while nothing in here touches `document`.
+-->
+<script type="module" id="aegis-core">
+  // ---------------------------------------------------------------------------
+  // constants. all public, all already in the README.
+  // ---------------------------------------------------------------------------
+  const CHAIN_ID = 5042002;
+  const EXPLORER = 'https://testnet.arcscan.app';
+  const GUARD = '0xb95f9c997235150d5f43b7c05897bb8e0173728d';
+
+  // the same four public gateways src/config.js rotates over. the main one
+  // rate-limits under a burst, so we move to the next one when it errors,
+  // exactly like viem's fallback transport does in node.
+  const RPCS = [
+    'https://rpc.testnet.arc.network',
+    'https://rpc.drpc.testnet.arc.network',
+    'https://rpc.blockdaemon.testnet.arc.network',
+    'https://rpc.quicknode.testnet.arc.network',
+  ];
+
+  // hand-rolled call data, because this page ships no library. both of these are
+  // pinned in the test against viem, so a typo here fails the suite rather than
+  // silently reading the wrong slot.
+  //   keccak("assess(address,uint256)")[0:4]
+  const ASSESS_SELECTOR = '0xcb41a44f';
+  //   keccak("dailyLimit()")[0:4]
+  const DAILY_LIMIT_SELECTOR = '0x67eeba0c';
+  //   keccak("Paid(address,address,uint256)")
+  const PAID_TOPIC0 = '0x9def4e2802183d68ce90a6a226a2962b59298616c27165f12c4fbc5c84cdd778';
+
+  const GUARD_VERDICT = ['Pay', 'Block', 'Review'];
+
+  // ---------------------------------------------------------------------------
+  // bytes. the node lane uses Buffer for this and a browser has none, so these
+  // two helpers are the entire difference between the two copies of the lane.
+  // hexToBytes copies Buffer.from(hex,'hex') exactly, including the parts that
+  // look like bugs: it stops at the first character that is not hex, and it
+  // drops a trailing half byte. matching that matters, because eth_getCode is
+  // the one input here an attacker gets to choose.
+  // ---------------------------------------------------------------------------
+  function hexToBytes(hex) {
+    const raw = String(hex ?? '');
+    const body = raw.slice(0, 2).toLowerCase() === '0x' ? raw.slice(2) : raw;
+    const clean = (body.match(/^[0-9a-fA-F]*/) || [''])[0];
+    const len = clean.length >> 1;
+    const out = new Uint8Array(len);
+    for (let i = 0; i < len; i++) out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+    return out;
+  }
+
+  function bytesToHex(bytes) {
+    let out = '';
+    for (let i = 0; i < bytes.length; i++) out += bytes[i].toString(16).padStart(2, '0');
+    return out;
+  }
+
+  // ---------------------------------------------------------------------------
+  // keccak-256. needed for two things a payment page should not skip: verifying
+  // the EIP-55 checksum of what you pasted, and computing the recipient's
+  // codehash, which is the exact value AegisGuard.blockedCodehash keys on.
+  //
+  // written against the spec with 64-bit lanes as BigInt rather than lifted from
+  // anywhere, and checked against viem's keccak256 in the test over the empty
+  // string, known vectors, and 300 lengths of random bytes - the point being
+  // that hand-rolled crypto in a security page is only acceptable if something
+  // else is checking it.
+  // ---------------------------------------------------------------------------
+  const MASK64 = (1n << 64n) - 1n;
+  const ROT = [
+    0n, 1n, 62n, 28n, 27n,
+    36n, 44n, 6n, 55n, 20n,
+    3n, 10n, 43n, 25n, 39n,
+    41n, 45n, 15n, 21n, 8n,
+    18n, 2n, 61n, 56n, 14n,
+  ];
+  const RC = [
+    0x0000000000000001n, 0x0000000000008082n, 0x800000000000808an, 0x8000000080008000n,
+    0x000000000000808bn, 0x0000000080000001n, 0x8000000080008081n, 0x8000000000008009n,
+    0x000000000000008an, 0x0000000000000088n, 0x0000000080008009n, 0x000000008000000an,
+    0x000000008000808bn, 0x800000000000008bn, 0x8000000000008089n, 0x8000000000008003n,
+    0x8000000000008002n, 0x8000000000000080n, 0x000000000000800an, 0x800000008000000an,
+    0x8000000080008081n, 0x8000000000008080n, 0x0000000080000001n, 0x8000000080008008n,
+  ];
+  const rotl64 = (x, n) => ((x << n) | (x >> (64n - n))) & MASK64;
+
+  function keccakF(A) {
+    for (let round = 0; round < 24; round++) {
+      const C = new Array(5);
+      for (let x = 0; x < 5; x++) C[x] = A[x] ^ A[x + 5] ^ A[x + 10] ^ A[x + 15] ^ A[x + 20];
+      const D = new Array(5);
+      for (let x = 0; x < 5; x++) D[x] = C[(x + 4) % 5] ^ rotl64(C[(x + 1) % 5], 1n);
+      for (let x = 0; x < 5; x++) for (let y = 0; y < 25; y += 5) A[x + y] ^= D[x];
+
+      const B = new Array(25);
+      for (let x = 0; x < 5; x++) {
+        for (let y = 0; y < 5; y++) B[y + 5 * ((2 * x + 3 * y) % 5)] = rotl64(A[x + 5 * y], ROT[x + 5 * y]);
+      }
+      for (let x = 0; x < 5; x++) {
+        for (let y = 0; y < 5; y++) {
+          A[x + 5 * y] = B[x + 5 * y] ^ (~B[(x + 1) % 5 + 5 * y] & MASK64 & B[(x + 2) % 5 + 5 * y]);
+        }
+      }
+      A[0] ^= RC[round];
+    }
+  }
+
+  function keccak256Bytes(input) {
+    const RATE = 136; // 1088 bits, the rate for keccak-256
+    const padLen = RATE - (input.length % RATE); // a full block when it divides evenly, which is correct
+    const padded = new Uint8Array(input.length + padLen);
+    padded.set(input);
+    padded[input.length] |= 0x01;         // keccak padding, not sha3's 0x06
+    padded[padded.length - 1] |= 0x80;
+
+    const A = new Array(25).fill(0n);
+    for (let off = 0; off < padded.length; off += RATE) {
+      for (let i = 0; i < RATE / 8; i++) {
+        let lane = 0n; // lanes are little-endian
+        for (let b = 7; b >= 0; b--) lane = (lane << 8n) | BigInt(padded[off + i * 8 + b]);
+        A[i] ^= lane;
+      }
+      keccakF(A);
+    }
+
+    const out = new Uint8Array(32);
+    for (let i = 0; i < 4; i++) {
+      let lane = A[i];
+      for (let b = 0; b < 8; b++) { out[i * 8 + b] = Number(lane & 0xffn); lane >>= 8n; }
+    }
+    return out;
+  }
+
+  // hex string in, 0x-prefixed hash out. matches keccak256 of the raw bytes.
+  function keccak256(hex) {
+    return '0x' + bytesToHex(keccak256Bytes(hexToBytes(hex)));
+  }
+
+  function keccak256Text(text) {
+    return '0x' + bytesToHex(keccak256Bytes(new TextEncoder().encode(text)));
+  }
+
+  // EIP-55. capitalisation carries a checksum, and checking it is the only way
+  // this page can catch a mistyped address at all - a typo that is still 40 hex
+  // characters points at an address with no code, which reads as an ordinary
+  // wallet and passes.
+  function toChecksumAddress(address) {
+    const lower = address.slice(2).toLowerCase();
+    const hash = keccak256Text(lower).slice(2);
+    let out = '0x';
+    for (let i = 0; i < 40; i++) {
+      out += parseInt(hash[i], 16) >= 8 ? lower[i].toUpperCase() : lower[i];
+    }
+    return out;
+  }
+
+  // three answers, not two: valid, malformed, or well-formed with a bad
+  // checksum. the third is the interesting one and deserves its own message.
+  function parseAddress(text) {
+    const t = String(text ?? '').trim();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(t)) return { ok: false, why: 'malformed' };
+    const body = t.slice(2);
+    const mixed = body !== body.toLowerCase() && body !== body.toUpperCase();
+    if (mixed && toChecksumAddress(t) !== t) return { ok: false, why: 'checksum' };
+    return { ok: true, address: toChecksumAddress(t) };
+  }
+
+  // ---------------------------------------------------------------------------
+  // the bytecode lane, mirrored from src/lanes/bytecode.js.
+  // ---------------------------------------------------------------------------
+  const DANGER = {
+    0xff: { name: 'SELFDESTRUCT', score: 60, note: 'selfdestruct present - funds sent here can get stranded (honeypot / dead-end pattern)' },
+    0xf4: { name: 'DELEGATECALL', score: 40, note: 'delegatecall - upgradeable/proxy, logic can be swapped out under you' },
+    0xf2: { name: 'CALLCODE',     score: 40, note: 'callcode - deprecated delegatecall variant, drainer-adjacent' },
+    0xf5: { name: 'CREATE2',      score: 35, note: 'create2 - can redeploy different code at the same address (metamorphic rug)' },
+    0xf0: { name: 'CREATE',       score: 20, note: 'create - can spawn child contracts at runtime' },
+    0x32: { name: 'ORIGIN',       score: 15, note: 'tx.origin - phishing / auth-bypass anti-pattern' },
+  };
+
+  const IMMUTABLE = 'deployed deterministically and not upgradeable';
+  const CIRCLE_ADMIN = 'upgradeable by Circle, so its logic can change under you';
+  const CIRCLE_SYSTEM = {
+    '0x3600000000000000000000000000000000000000': { name: 'USDC (ERC-20 interface)', trust: CIRCLE_ADMIN },
+    '0x000000000022d473030f116ddee9f6b43ac78ba3': { name: 'Permit2', trust: IMMUTABLE },
+    '0x8fe6b999dc680ccfdd5bf7eb0974218be2542daa': { name: 'TokenMessengerV2 (CCTP)', trust: CIRCLE_ADMIN },
+    '0x0077777d7eba4688bdef3e311b846f25870a19b9': { name: 'GatewayWallet', trust: CIRCLE_ADMIN },
+    '0x0022222abe238cc2c7bb1f21003f0a260052475b': { name: 'GatewayMinter', trust: CIRCLE_ADMIN },
+    '0x867650f5eae8df91445971f14d89fd84f0c9a9f8': { name: 'FxEscrow (StableFX)', trust: CIRCLE_ADMIN },
+  };
+
+  const isPush = (op) => op >= 0x60 && op <= 0x7f;
+  const pushLen = (op) => op - 0x60 + 1;
+
+  function cborEnd(b, i) {
+    if (i >= b.length) return -1;
+    const t = b[i];
+    if (t <= 0x17) return i + 1;
+    if (t === 0x18) return i + 2;
+    if (t === 0x19) return i + 3;
+    if (t >= 0x40 && t <= 0x57) return i + 1 + (t - 0x40);
+    if (t === 0x58) return i + 2 + (b[i + 1] ?? 0);
+    if (t >= 0x60 && t <= 0x77) return i + 1 + (t - 0x60);
+    if (t === 0x78) return i + 2 + (b[i + 1] ?? 0);
+    if (t === 0xf4 || t === 0xf5) return i + 1;
+    if (t >= 0xa0 && t <= 0xa3) {
+      let j = i + 1;
+      for (let n = 0; n < (t - 0xa0) * 2; n++) {
+        j = cborEnd(b, j);
+        if (j < 0) return -1;
+      }
+      return j;
+    }
+    return -1;
+  }
+
+  function jumpsInto(b, start) {
+    for (let i = 0; i < start; i++) {
+      const op = b[i];
+      if (!isPush(op)) continue;
+      const n = pushLen(op);
+
+      let high = 0;
+      let v = 0;
+      for (let k = 1; k <= n; k++) {
+        const byte = b[i + k] ?? 0;
+        if (k <= n - 4) high |= byte;
+        else v = v * 256 + byte;
+      }
+      if (high === 0 && v >= start && v < b.length && b[v] === 0x5b) return true;
+
+      i += n;
+    }
+    return false;
+  }
+
+  function stripMetadata(hex) {
+    const bytes = hexToBytes(hex);
+    if (bytes.length < 4) return { body: hex, hidden: false };
+    const len = bytes[bytes.length - 2] * 256 + bytes[bytes.length - 1];
+    const start = bytes.length - 2 - len;
+    if (start <= 0) return { body: hex, hidden: false };
+    if (cborEnd(bytes, start) !== bytes.length - 2) return { body: hex, hidden: false };
+    if (jumpsInto(bytes, start)) return { body: hex, hidden: true };
+    return { body: '0x' + bytesToHex(bytes.subarray(0, start)), hidden: false };
+  }
+
+  function scanOpcodes(hex) {
+    const bytes = hexToBytes(hex);
+    const hits = {};
+    for (let i = 0; i < bytes.length; i++) {
+      const op = bytes[i];
+      if (isPush(op)) {
+        i += pushLen(op);
+        continue;
+      }
+      const d = DANGER[op];
+      if (d) {
+        if (!hits[d.name]) hits[d.name] = { count: 0, score: d.score, note: d.note };
+        hits[d.name].count += 1;
+      }
+    }
+    return hits;
+  }
+
+  const PROXY_HEAD = '363d3d373d3d3d363d73';
+  const PROXY_TAIL = '5af43d82803e903d91602b57fd5bf3';
+
+  function isMinimalProxy(hex) {
+    const h = hex.slice(2).toLowerCase();
+    return h.length === 90 && h.startsWith(PROXY_HEAD) && h.endsWith(PROXY_TAIL);
+  }
+
+  function levelFromScore(score) {
+    if (score >= 60) return 'HIGH';
+    if (score >= 30) return 'MEDIUM';
+    return 'LOW';
+  }
+
+  // everything checkBytecode does once it has the code. split out from the fetch
+  // so the test can hand the same bytes to this and to the node lane and compare
+  // the two objects, rather than comparing two descriptions of them.
+  function bytecodeVerdict(recipient, code) {
+    const lower = (code || '0x').toLowerCase();
+
+    if (lower.startsWith('0xef0100') && lower.length === 48) {
+      const target = '0x' + lower.slice(8);
+      return {
+        lane: 'bytecode',
+        level: 'MEDIUM',
+        score: 40,
+        isContract: false,
+        code,
+        reason: `EOA with an EIP-7702 delegation to ${target}. Execution is forwarded to that contract.`,
+        hits: {},
+      };
+    }
+
+    if (!code || code === '0x') {
+      return {
+        lane: 'bytecode',
+        level: 'LOW',
+        score: 0,
+        isContract: false,
+        code: '0x',
+        reason: 'Recipient is a normal wallet (EOA) - no contract code to run.',
+        hits: {},
+      };
+    }
+
+    const { body, hidden } = stripMetadata(code);
+    const hits = scanOpcodes(body);
+    if (hidden) {
+      hits.HIDDEN_CODE = {
+        count: 1,
+        score: 60,
+        note: 'the trailing "metadata" blob is jumped into by the code - it is executable, not a solc metadata hash',
+      };
+    }
+
+    if (isMinimalProxy(code)) {
+      delete hits.DELEGATECALL;
+      hits.MINIMAL_PROXY = {
+        count: 1,
+        score: 40,
+        note: 'eip-1167 minimal proxy - forwards every call to a hidden implementation you cannot inspect here',
+      };
+    }
+
+    const score = Object.values(hits).reduce((s, h) => s + h.score, 0);
+    const level = levelFromScore(score);
+    const byteLen = code.length / 2 - 1;
+
+    let reason;
+    if (score === 0) {
+      reason = `Recipient is a contract (${byteLen} bytes) with no known danger opcodes.`;
+    } else {
+      const parts = Object.entries(hits).map(([name, h]) => `${name} x${h.count} (${h.note})`);
+      reason = `Contract bytecode contains: ${parts.join('; ')}.`;
+    }
+
+    const system = CIRCLE_SYSTEM[recipient.toLowerCase()] ?? null;
+    if (system) {
+      reason = `${system.name} - a Circle system contract, ${system.trust}. ${reason}`;
+    }
+
+    return { lane: 'bytecode', level, score, isContract: true, code, reason, hits, system };
+  }
+
+  // ---------------------------------------------------------------------------
+  // the reputation lane, mirrored from src/lanes/reputation.js. both lists are
+  // empty in V1 and the page says so rather than dressing it up.
+  // ---------------------------------------------------------------------------
+  const DENYLIST = new Map([]);
+  const ALLOWLIST = new Map([]);
+
+  function checkReputation(recipient) {
+    const key = recipient.toLowerCase();
+    if (DENYLIST.has(key)) {
+      return { lane: 'reputation', level: 'HIGH', listed: 'deny', reason: `On denylist: ${DENYLIST.get(key)}` };
+    }
+    if (ALLOWLIST.has(key)) {
+      return { lane: 'reputation', level: 'LOW', listed: 'allow', reason: `On allowlist: ${ALLOWLIST.get(key)}` };
+    }
+    return {
+      lane: 'reputation',
+      level: 'LOW',
+      listed: null,
+      reason: 'No reputation record (mock lane - allow/deny lists are empty in V1).',
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // the behavior lane, mirrored from src/lanes/behavior.js.
+  // ---------------------------------------------------------------------------
+  const AMOUNT_THRESHOLD = 50;
+  const TRUST_MULTIPLE = 5;
+  const WINDOW = 50000n;
+
+  function behaviorVerdict(amount, paid) {
+    const large = amount > AMOUNT_THRESHOLD;
+    const unknown = paid === null;
+    const count = unknown ? 0 : paid.count;
+    const largest = unknown ? 0 : paid.largest;
+    const beyondHistory = amount > largest * TRUST_MULTIPLE;
+
+    if (large && (unknown || count === 0 || beyondHistory)) {
+      let reason;
+      if (unknown) {
+        reason = `Large payment (${amount} USDC > ${AMOUNT_THRESHOLD}) and the guard's payment history could not be read - worth a human glance.`;
+      } else if (count === 0) {
+        reason = `Large payment (${amount} USDC > ${AMOUNT_THRESHOLD}) to a recipient the guard has not paid in its recent history - worth a human glance.`;
+      } else {
+        reason = `Large payment (${amount} USDC > ${AMOUNT_THRESHOLD}), and over ${TRUST_MULTIPLE}x the largest the guard has paid this recipient before (${largest} USDC across ${count} payment${count === 1 ? '' : 's'}) - worth a human glance.`;
+      }
+      return { lane: 'behavior', level: 'MEDIUM', escalate: true, reason };
+    }
+
+    const seen = unknown
+      ? 'history unavailable'
+      : count === 0
+        ? 'no prior payments in recent history'
+        : `paid ${count} time${count === 1 ? '' : 's'} before, up to ${largest} USDC`;
+    return {
+      lane: 'behavior',
+      level: 'LOW',
+      escalate: false,
+      reason: `Amount ${amount} USDC within normal range for this recipient (${seen}).`,
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // the decision, mirrored from src/aegis.js with the LLM branch resolved the
+  // way the engine resolves it when `claude -p` is not reachable: deterministic
+  // verdict, said out loud. that is a real code path in node, not a browser
+  // shortcut - the CLI can be missing or time out there too.
+  //
+  // the one branch not modelled is aegisCheck's isApprove case, because this
+  // page asks about a payment and never about an allowance.
+  // ---------------------------------------------------------------------------
+  const DECISION = { PAY: 'PAY', BLOCK: 'BLOCK', ASK_HUMAN: 'ASK_HUMAN' };
+  const NO_LLM = 'the LLM second pass cannot run in a browser (it goes through the claude CLI)';
+
+  function decide({ bytecode, reputation, behavior }) {
+    const reasons = [];
+    let decision;
+    let llmWouldRun = false;
+
+    if (reputation.listed === 'deny') {
+      decision = DECISION.BLOCK;
+      reasons.push(`Reputation: ${reputation.reason}`);
+    } else if (bytecode.level === 'HIGH') {
+      llmWouldRun = true;
+      decision = DECISION.BLOCK;
+      reasons.push(`Bytecode flagged HIGH: ${bytecode.reason}`);
+      reasons.push(`LLM unavailable (${NO_LLM}); falling back to deterministic BLOCK.`);
+    } else if (bytecode.level === 'MEDIUM') {
+      llmWouldRun = true;
+      decision = DECISION.ASK_HUMAN;
+      reasons.push(`Bytecode flagged MEDIUM: ${bytecode.reason}`);
+      reasons.push(`   (LLM unavailable: ${NO_LLM} - escalating on deterministic grounds.)`);
+    } else if (behavior.escalate) {
+      llmWouldRun = true;
+      decision = DECISION.ASK_HUMAN;
+      reasons.push(`Behavior: ${behavior.reason}`);
+      reasons.push(`   (LLM unavailable: ${NO_LLM} - escalating on deterministic grounds.)`);
+    } else {
+      decision = DECISION.PAY;
+      if (bytecode.isContract && bytecode.score > 0) {
+        reasons.push(`Bytecode: minor flags below the risk threshold (${Object.keys(bytecode.hits).join(', ')}).`);
+      } else {
+        reasons.push(`Bytecode: ${bytecode.reason}`);
+      }
+      if (reputation.listed === 'allow') reasons.push(`Reputation: ${reputation.reason}`);
+    }
+
+    return { decision, reasons, llmWouldRun };
+  }
+
+  // ---------------------------------------------------------------------------
+  // the chain. plain JSON-RPC over fetch: no library, so nothing to load from a
+  // third party, which is the only way a page like this can honestly say there
+  // is nothing to trust but the code you are looking at.
+  // ---------------------------------------------------------------------------
+  let rpcIndex = 0;
+
+  async function rpc(method, params) {
+    let lastErr = null;
+    for (let n = 0; n < RPCS.length; n++) {
+      const at = (rpcIndex + n) % RPCS.length;
+      try {
+        const res = await fetch(RPCS[at], {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const body = await res.json();
+        if (body.error) throw new Error(body.error.message || 'rpc error');
+        rpcIndex = at; // stay on the gateway that answered
+        return body.result;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw new Error(`every Arc gateway failed (last: ${lastErr?.message ?? 'unknown'})`);
+  }
+
+  const pad32 = (hex) => hex.replace(/^0x/, '').toLowerCase().padStart(64, '0');
+  const word = (bytes, at) => BigInt('0x' + (bytesToHex(bytes.subarray(at, at + 32)) || '0'));
+
+  async function getCode(address) {
+    return await rpc('eth_getCode', [address, 'latest']);
+  }
+
+  // (uint8 verdict, string reason) is two head words and a tail. hand-decoded,
+  // and pinned in the test against viem's decodeFunctionResult.
+  function decodeAssess(raw) {
+    const b = hexToBytes(raw);
+    if (b.length < 96) throw new Error('assess returned a short answer');
+    const verdict = Number(word(b, 0));
+    const offset = Number(word(b, 32));
+    if (!Number.isSafeInteger(offset) || offset + 32 > b.length) throw new Error('assess returned a bad string offset');
+    const len = Number(word(b, offset));
+    if (!Number.isSafeInteger(len) || offset + 32 + len > b.length) throw new Error('assess returned a bad string length');
+    const reason = new TextDecoder().decode(b.subarray(offset + 32, offset + 32 + len));
+    return { verdict, verdictName: GUARD_VERDICT[verdict] ?? `unknown(${verdict})`, reason };
+  }
+
+  async function assessOnChain(address, amountBase) {
+    const data = ASSESS_SELECTOR + pad32(address) + pad32(amountBase.toString(16));
+    return decodeAssess(await rpc('eth_call', [{ to: GUARD, data }, 'latest']));
+  }
+
+  async function dailyLimit() {
+    return BigInt(await rpc('eth_call', [{ to: GUARD, data: DAILY_LIMIT_SELECTOR }, 'latest']));
+  }
+
+  // the guard's own Paid logs, the same read the behavior lane does in node:
+  // windowed, because the public gateways reject wide ranges, and null rather
+  // than an empty history when the read fails. "we have never paid them" and
+  // "we could not find out" are different claims.
+  async function timesPaid(address) {
+    try {
+      const latest = BigInt(await rpc('eth_blockNumber', []));
+      const from = latest > WINDOW ? latest - WINDOW : 0n;
+      const logs = await rpc('eth_getLogs', [{
+        address: GUARD,
+        topics: [PAID_TOPIC0, null, '0x' + pad32(address)],
+        fromBlock: '0x' + from.toString(16),
+        toBlock: 'latest',
+      }]);
+      let largestBase = 0n;
+      for (const log of logs) {
+        const value = BigInt(log.data ?? '0x0');
+        if (value > largestBase) largestBase = value;
+      }
+      return { count: logs.length, largest: Number(largestBase) / 1e6 };
+    } catch {
+      return null;
+    }
+  }
+
+  // whole USDC to 6-decimal base units without going through a float, which is
+  // the standard way to lose a cent.
+  function toBaseUnits(text) {
+    const m = /^(\d+)(?:\.(\d{1,6}))?$/.exec(String(text ?? '').trim());
+    if (!m) return null;
+    return BigInt(m[1]) * 1000000n + BigInt((m[2] ?? '').padEnd(6, '0'));
+  }
+
+  // the whole check, in the order the node engine runs it.
+  async function check(address, amountUSDC) {
+    const code = await getCode(address);
+    const bytecode = bytecodeVerdict(address, code);
+    const reputation = checkReputation(address);
+    const behavior = behaviorVerdict(amountUSDC, await timesPaid(address));
+    return { ...decide({ bytecode, reputation, behavior }), lanes: { bytecode, reputation, behavior } };
+  }
+
+  globalThis.AEGIS = {
+    CHAIN_ID, EXPLORER, GUARD, RPCS,
+    ASSESS_SELECTOR, DAILY_LIMIT_SELECTOR, PAID_TOPIC0, GUARD_VERDICT,
+    AMOUNT_THRESHOLD, DECISION,
+    hexToBytes, bytesToHex, keccak256, keccak256Text, toChecksumAddress, parseAddress,
+    cborEnd, jumpsInto, stripMetadata, bytecodeVerdict,
+    checkReputation, behaviorVerdict, decide,
+    rpc, getCode, decodeAssess, assessOnChain, dailyLimit, timesPaid, toBaseUnits, check,
+  };
+</script>
+
+<script type="module">
+  const A = globalThis.AEGIS;
+
+  const $ = (id) => document.getElementById(id);
+  const form = $('form');
+  const addrInput = $('addr');
+  const amtInput = $('amt');
+  const goButton = $('go');
+  const status = $('status');
+  const out = $('out');
+
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const short = (a) => `${a.slice(0, 6)}...${a.slice(-4)}`;
+  const explorerLink = (a) => `<a class="mono" href="${A.EXPLORER}/address/${a}">${esc(a)}</a>`;
+
+  // the examples are all live on Arc and all already named in the README, so
+  // there is nothing here a judge has to take on trust either.
+  const EXAMPLES = [
+    ['HoneypotVault', '0x9A0Da68C0F9654Bd7110E928F229B7c4C216dE9C'],
+    ['a clone of it', '0x206c41E5eCBa4Bae95FaD60Db2637206b0602594'],
+    ['USDC', '0x3600000000000000000000000000000000000000'],
+    ['Permit2', '0x000000000022D473030F116dDEE9F6B43aC78BA3'],
+    ['AegisGuard', '0xB95F9C997235150d5F43b7c05897bB8E0173728D'],
+  ];
+
+  for (const [label, address] of EXAMPLES) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'chip';
+    b.textContent = label;
+    b.addEventListener('click', () => {
+      addrInput.value = address;
+      form.requestSubmit();
+    });
+    $('examples').appendChild(b);
+  }
+
+  function laneCard(title, sub, level, body) {
+    return `<div class="card">
+      <h3>${esc(title)}<span class="lvl ${esc(level)}">${esc(level)}</span></h3>
+      <p class="sub">${esc(sub)}</p>
+      <p>${body}</p>
+    </div>`;
+  }
+
+  function hitsTable(hits) {
+    const names = Object.keys(hits);
+    if (names.length === 0) return '';
+    return `<div class="kv">${names.map((n) => `<div><span class="k">${esc(n)} x${hits[n].count}</span><span class="v" style="font-family:var(--sans)">+${hits[n].score}</span></div>`).join('')}</div>`;
+  }
+
+  // the two layers can disagree, in both directions, and each direction means
+  // something specific. saying which one binds is the whole point of showing
+  // them side by side, so it gets said rather than left for the reader.
+  function compare(decision, verdictName) {
+    const guardPays = verdictName === 'Pay';
+    const browserPays = decision === 'PAY';
+    if (guardPays === browserPays) {
+      if (!guardPays && decision !== 'BLOCK' && verdictName === 'Block') {
+        return 'Both layers refuse, and the guard is the harder no: it is matching something written into its '
+          + 'own state by an earlier analysis, which is how one verdict comes to cover every address sharing '
+          + 'those bytes rather than just the one that was looked at.';
+      }
+      return 'Both layers land on the same side here.';
+    }
+    if (browserPays) {
+      return 'The browser lane cleared this and the guard would not, so the payment does not happen: '
+        + '<code>guardedPay</code> reverts on anything but <code>Pay</code>. The contract knows things an '
+        + 'opcode scan cannot see - its own denylist, a blocked codehash, whether a contract has been '
+        + 'vetted, and how much has already gone out today.';
+    }
+    return 'The guard would let this through and the browser lane would not, which is why the two are not '
+      + 'redundant: only the off-chain scan reads the recipient\'s code. When the full engine reaches BLOCK '
+      + 'it writes that verdict into the guard\'s own state, and the contract enforces it from then on.';
+  }
+
+  function render(address, amountUSDC, result, chainState) {
+    const { decision, reasons, llmWouldRun, lanes } = result;
+    const tagClass = { PAY: 'pay', BLOCK: 'block', ASK_HUMAN: 'ask' }[decision];
+
+    const guardLine = chainState.error
+      ? `<p>Could not read the guard: ${esc(chainState.error)}</p>`
+      : `<p><b>${esc(chainState.assess.verdictName)}</b> - ${esc(chainState.assess.reason)}</p>
+         <div class="kv">
+           <div><span class="k">contract</span><span class="v">${explorerLink(A.GUARD)}</span></div>
+           <div><span class="k">daily cap</span><span class="v">${esc(chainState.dailyLimit)} USDC</span></div>
+           ${chainState.codehash ? `<div><span class="k">codehash</span><span class="v">${esc(chainState.codehash)}</span></div>` : ''}
+         </div>
+         <p style="font-size:13px">A free <code>eth_call</code> against the deployed guard, and the verdict that
+         binds: <code>guardedPay</code> runs this same function inside the transfer.
+         ${compare(decision, chainState.assess.verdictName)} ${chainState.codehash
+           ? 'The codehash above is what <code>blockedCodehash</code> keys on, so every address running these exact bytes shares one row in that mapping.'
+           : ''}</p>`;
+
+    out.innerHTML = `
+      <div class="banner">
+        <span class="tag ${tagClass}">${esc(decision)}</span>
+        <p class="who"><b>${esc(short(address))}</b> for ${esc(amountUSDC)} USDC &nbsp;&middot;&nbsp; ${explorerLink(address)}</p>
+      </div>
+      <ul class="reasons">${reasons.map((r) => `<li>${esc(r.trim())}</li>`).join('')}</ul>
+      <div class="lanes">
+        ${laneCard('Bytecode', 'live eth_getCode on Arc', lanes.bytecode.level,
+          `${esc(lanes.bytecode.reason)}${hitsTable(lanes.bytecode.hits)}`)}
+        ${laneCard('Reputation', 'off-chain, still a mock', lanes.reputation.level,
+          esc(lanes.reputation.reason))}
+        ${laneCard('Behavior', "the guard's own Paid logs", lanes.behavior.level,
+          esc(lanes.behavior.reason))}
+        <div class="card">
+          <h3>Second pass<span class="lvl">${llmWouldRun ? 'WOULD RUN' : 'NOT NEEDED'}</span></h3>
+          <p class="sub">llm, local cli only</p>
+          <p>${llmWouldRun
+            ? 'On a machine running the engine, the raw bytecode goes to <code>claude -p</code> here for a second opinion. In a browser it cannot, so this verdict is the deterministic fallback the engine uses when that call is unavailable.'
+            : 'Nothing tripped, so the engine would not spend an LLM call on this one either. What you see is the whole decision.'}</p>
+        </div>
+        <div class="card wide">
+          <h3>What the deployed guard says<span class="lvl">ON-CHAIN</span></h3>
+          <p class="sub">AegisGuard.assess, read live from Arc</p>
+          ${guardLine}
+        </div>
+      </div>
+      ${lanes.bytecode.code && lanes.bytecode.code !== '0x' ? `
+        <details class="code">
+          <summary>runtime bytecode (${lanes.bytecode.code.length / 2 - 1} bytes)</summary>
+          <pre>${esc(lanes.bytecode.code)}</pre>
+        </details>` : ''}
+    `;
+    out.hidden = false;
+  }
+
+  // click two examples in a row and the first read can still be in flight when
+  // the second finishes. a page that answers a question you have already moved
+  // on from is worse than a slow one, so every run takes a ticket and a stale
+  // run is not allowed to write anything.
+  let latest = 0;
+
+  function fail(message) {
+    out.hidden = true;
+    status.className = 'status err';
+    status.textContent = message;
+    goButton.disabled = false; // only the newest run calls this, so it owns the button
+  }
+
+  async function run() {
+    const ticket = ++latest;
+    const stale = () => ticket !== latest;
+
+    const parsed = A.parseAddress(addrInput.value);
+    if (!parsed.ok) {
+      fail(parsed.why === 'checksum'
+        ? 'That address is 40 hex characters but fails its EIP-55 checksum, so something in it is mistyped.'
+        : 'That is not an address. Expected 0x followed by 40 hex characters.');
+      return;
+    }
+
+    const amountBase = A.toBaseUnits(amtInput.value);
+    if (amountBase === null) {
+      fail('Amount must be a number with at most 6 decimal places, the way USDC is.');
+      return;
+    }
+    const amountUSDC = Number(amtInput.value);
+    const address = parsed.address;
+
+    goButton.disabled = true;
+    status.className = 'status';
+    status.textContent = 'Reading Arc...';
+    try {
+      const result = await A.check(address, amountUSDC);
+
+      // the on-chain half is separate on purpose: if the guard read fails, the
+      // browser verdict is still worth showing, and vice versa.
+      const chainState = { error: null, assess: null, dailyLimit: null, codehash: null };
+      try {
+        const [assess, limit] = await Promise.all([A.assessOnChain(address, amountBase), A.dailyLimit()]);
+        chainState.assess = assess;
+        chainState.dailyLimit = (Number(limit) / 1e6).toString();
+        if (result.lanes.bytecode.isContract) chainState.codehash = A.keccak256(result.lanes.bytecode.code);
+      } catch (err) {
+        chainState.error = err.message;
+      }
+
+      if (stale()) return;
+      render(address, amountUSDC, result, chainState);
+      status.textContent = '';
+    } catch (err) {
+      if (!stale()) fail(`Could not read the chain: ${err.message}`);
+    } finally {
+      if (!stale()) goButton.disabled = false;
+    }
+  }
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    run();
+  });
+
+  // deep link, so a result can be shared as a url: check.html?a=0x...&amount=5
+  const params = new URLSearchParams(location.search);
+  if (params.get('a')) {
+    addrInput.value = params.get('a');
+    if (params.get('amount')) amtInput.value = params.get('amount');
+    run();
+  }
+</script>
+
+</body>
+</html>

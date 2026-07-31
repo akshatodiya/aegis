@@ -15,6 +15,7 @@ import {
 import { foundry } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
 import { compileContract } from '../src/compile.js';
+import { REFUSAL, guardReasonCode } from '../src/refusals.js';
 
 const RPC = 'http://127.0.0.1:8545';
 
@@ -393,4 +394,28 @@ test('a payment to the zero address is blocked', async () => {
     () => pub.simulateContract({ address: guard, abi: GUARD.abi, functionName: 'guardedPay', args: ['0x0000000000000000000000000000000000000000', usd(1)], account: owner }),
     'zero address',
   );
+});
+
+test('every verdict the deployed contract can give maps onto a refusal code', async () => {
+  // src/refusals.js translates AegisGuard's prose into the same vocabulary the
+  // off-chain rail uses, and test/refusals.test.mjs checks that map against the
+  // contract SOURCE. this checks it against the contract as actually compiled
+  // and deployed, one policy path at a time, because the source is not what
+  // answers an RPC call.
+  const ZERO = '0x0000000000000000000000000000000000000000';
+
+  assert.equal(guardReasonCode((await assess(bob, 10)).reason), null); // "clear"
+  assert.equal(guardReasonCode((await assess(ZERO, 10)).reason), REFUSAL.ZERO_ADDRESS);
+  assert.equal(guardReasonCode((await assess(honeypot, 10)).reason), REFUSAL.UNVETTED_CONTRACT);
+
+  await send(guard, GUARD.abi, 'setDenylisted', [bob, true]);
+  assert.equal(guardReasonCode((await assess(bob, 10)).reason), REFUSAL.DENYLISTED);
+  await send(guard, GUARD.abi, 'setDenylisted', [bob, false]);
+
+  const code = await pub.getCode({ address: honeypot });
+  await send(guard, GUARD.abi, 'setBlockedCodehash', [keccak256(code), true]);
+  assert.equal(guardReasonCode((await assess(honeypot, 10)).reason), REFUSAL.BLOCKED_CODEHASH);
+
+  // limit is 100, so 200 is over it
+  assert.equal(guardReasonCode((await assess(bob, 200)).reason), REFUSAL.DAILY_CAP);
 });

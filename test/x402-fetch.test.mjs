@@ -463,3 +463,89 @@ test('replies to a v1 (maxAmountRequired) 402 with a single X-PAYMENT header', a
   const inner = JSON.parse(Buffer.from(h.get('X-PAYMENT'), 'base64').toString());
   assert.equal(inner.x402Version, 1);
 });
+
+// ---- the refusal codes ----
+// same idea as the signer's: a caller that wants to retry when nobody was around
+// to approve, and give up when a person said no, needs to tell those apart
+// without matching a sentence. every refusal below is a different code.
+test('every refusal this wrapper raises names itself with a code', async () => {
+  const overCapOpts = { maxPerPayment: 5000n };
+  const cases = [
+    ['NO_PAYABLE_OPTION', build({
+      responses: [resp402Body([option({ network: 'eip155:1' })])],
+    })],
+    ['UNKNOWN_SERVICE', build({
+      catalogEntries: [], responses: [resp402Body([option()])],
+    })],
+    ['OVER_POSTED_PRICE', build({
+      responses: [resp402Body([option({ amount: '5000000' })])],
+    })],
+    ['NO_APPROVER', build({
+      catalogEntries: pricey, responses: [resp402Body([option()])], fetchOpts: overCapOpts,
+    })],
+    ['HUMAN_DECLINED', build({
+      catalogEntries: pricey, responses: [resp402Body([option()])],
+      fetchOpts: { ...overCapOpts, askHuman: async () => false },
+    })],
+    ['APPROVER_FAILED', build({
+      catalogEntries: pricey, responses: [resp402Body([option()])],
+      fetchOpts: { ...overCapOpts, askHuman: async () => { throw new Error('no tty'); } },
+    })],
+  ];
+
+  for (const [code, { aegisFetch }] of cases) {
+    const err = await aegisFetch('https://api.test/data').then(() => null, (e) => e);
+    assert.ok(err instanceof AegisPaymentRefused, `${code}: expected a refusal`);
+    assert.equal(err.code, code);
+    assert.ok(err.reason.length > 0, `${code}: the code never replaces the prose`);
+  }
+});
+
+test('a refusal raised inside the signer keeps the signerical code', async () => {
+  // the fetch wrapper annotates a signer refusal with the resource, and must not
+  // touch its code - the signer knows which invariant it was, and this layer
+  // doesn't.
+  const { aegisFetch } = build({
+    decision: 'BLOCK',
+    responses: [resp402Body([option()])],
+  });
+  const err = await aegisFetch('https://api.test/data').then(() => null, (e) => e);
+  assert.ok(err instanceof AegisPaymentRefused);
+  assert.equal(err.code, 'UNKNOWN'); // the injected verdict carries no lane code
+  assert.match(err.reason, /verdict BLOCK/);
+});
+
+test('an absent approver and a person saying no are different refusals', async () => {
+  // the handler returns null when there was nobody to ask - an unattended run, a
+  // closed tty - and false when a person actually answered. both refuse, and an
+  // agent deciding whether to try again later needs to know which happened.
+  const nobody = build({
+    catalogEntries: pricey,
+    responses: [resp402Body([option()])],
+    fetchOpts: { ...overCap, askHuman: async () => null },
+  });
+  const declined = build({
+    catalogEntries: pricey,
+    responses: [resp402Body([option()])],
+    fetchOpts: { ...overCap, askHuman: async () => false },
+  });
+
+  const a = await nobody.aegisFetch('https://api.test/data').then(() => null, (e) => e);
+  assert.equal(a.code, 'NO_APPROVER');
+  assert.match(a.reason, /nobody was available/);
+
+  const b = await declined.aegisFetch('https://api.test/data').then(() => null, (e) => e);
+  assert.equal(b.code, 'HUMAN_DECLINED');
+  assert.match(b.reason, /human declined/);
+
+  // and only an explicit true approves. a handler that returns something truthy
+  // but not true has not said yes, and a firewall reads that as no.
+  const vague = build({
+    catalogEntries: pricey,
+    responses: [resp402Body([option()])],
+    fetchOpts: { ...overCap, askHuman: async () => 'yes please' },
+  });
+  const c = await vague.aegisFetch('https://api.test/data').then(() => null, (e) => e);
+  assert.ok(c instanceof AegisPaymentRefused);
+  assert.equal(c.code, 'HUMAN_DECLINED');
+});

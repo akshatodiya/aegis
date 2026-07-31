@@ -185,3 +185,59 @@ test('TTL boundary: exactly the cap signs, one second over refuses', async () =>
     (e) => e instanceof AegisPaymentRefused,
   );
 });
+
+// ---- the refusal codes ----
+// every refusal this signer raises carries a code beside its prose (see
+// src/refusals.js). the codes are what a caller can branch on; the prose is
+// still the answer. this walks every path at once, because the failure mode
+// worth catching is a new refusal added later with no code on it.
+test('every refusal the signer raises names itself with a code', async () => {
+  const cases = [
+    ['WRONG_ASSET', () => signerWith(DECISION.PAY).signTypedData(payment({ asset: '0x000000000000000000000000000000000000dEaD' }))],
+    ['WRONG_CHAIN', () => signerWith(DECISION.PAY).signTypedData(payment({ chainId: 1 }))],
+    ['VALIDITY_WINDOW', () => signerWith(DECISION.PAY).signTypedData(payment({ ttl: 60 * 60 }))],
+    ['BAD_AMOUNT', () => signerWith(DECISION.PAY).signTypedData(payment({ value: 0n }))],
+    ['MALFORMED_AUTHORIZATION', () => {
+      const p = payment();
+      p.message.value = 'not a number';
+      return signerWith(DECISION.PAY).signTypedData(p);
+    }],
+    ['EXCEEDS_BALANCE', () => signerWith(DECISION.PAY, { balanceOf: async () => 1n }).signTypedData(payment())],
+    ['FUND_MOVING_PRIMITIVE', () => {
+      const p = payment();
+      p.primaryType = 'Permit';
+      return signerWith(DECISION.PAY).signTypedData(p);
+    }],
+    ['DISABLED_PRIMITIVE', async () => signerWith(DECISION.PAY).sign({ hash: '0x' + '00'.repeat(32) })],
+  ];
+
+  for (const [code, run] of cases) {
+    const err = await Promise.resolve().then(run).then(() => null, (e) => e);
+    assert.ok(err instanceof AegisPaymentRefused, `${code}: expected a refusal`);
+    assert.equal(err.code, code);
+    assert.ok(err.reason.length > 0, `${code}: a code never replaces the prose`);
+  }
+});
+
+test('a policy refusal carries the lane code, not a generic one', async () => {
+  // the difference between "policy said no" and "denylisted". the engine already
+  // worked out which lane refused; the signer hands that through rather than
+  // flattening every verdict into one code.
+  const signer = createAegisSigner(account, {
+    usdc: USDC, chainId: CHAIN_ID, now: () => NOW,
+    balanceOf: async () => 1000000000n,
+    check: async () => ({ decision: DECISION.BLOCK, code: 'DENYLISTED', reasons: ['Reputation: known bad'] }),
+  });
+  const err = await signer.signTypedData(payment()).then(() => null, (e) => e);
+  assert.ok(err instanceof AegisPaymentRefused);
+  assert.equal(err.code, 'DENYLISTED');
+  assert.equal(err.verdict, DECISION.BLOCK);
+});
+
+test('a verdict with no code of its own becomes UNKNOWN, not null', async () => {
+  // an engine that refused without saying which lane did it is a gap worth
+  // seeing in the output, so it gets the honest word rather than an empty field.
+  const err = await signerWith(DECISION.BLOCK).signTypedData(payment()).then(() => null, (e) => e);
+  assert.ok(err instanceof AegisPaymentRefused);
+  assert.equal(err.code, 'UNKNOWN');
+});

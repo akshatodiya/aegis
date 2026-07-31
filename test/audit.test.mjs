@@ -18,6 +18,7 @@ process.env.CHAIN = 'arc';
 process.env.AEGIS_AUDIT_LOG = '';
 const { trimReason, refusalEntry, createAuditLogger, AUDIT_VERDICT, MAX_REASON_BYTES } =
   await import('../src/audit.js');
+const { REFUSAL, readStamp } = await import('../src/refusals.js');
 const { AegisPaymentRefused } = await import('../src/x402/signer.js');
 const { DECISION } = await import('../src/aegis.js');
 
@@ -197,4 +198,50 @@ test('writes go out one at a time, in order', async () => {
   }
   await audit.flush();
   assert.deepEqual(order, ['first', 'second', 'third']);
+});
+
+// ---- the refusal code in an on-chain reason ----
+// AegisAuditLog stores one string per refusal and is already deployed, so the
+// code rides at the front of that string. Where it rides is the whole design:
+// the trim below cuts from the tail.
+
+test('the code is written at the front of the reason', () => {
+  const entry = refusalEntry({
+    code: REFUSAL.UNKNOWN_SERVICE,
+    reason: 'payTo 0xabc is not a service in the catalog',
+    recipient: MERCHANT,
+  });
+  assert.equal(entry.reason, 'UNKNOWN_SERVICE: payTo 0xabc is not a service in the catalog');
+  assert.deepEqual(readStamp(entry.reason), {
+    code: REFUSAL.UNKNOWN_SERVICE,
+    reason: 'payTo 0xabc is not a service in the catalog',
+  });
+});
+
+test('a merchant can make the prose long, but cannot cut the code off it', () => {
+  // the reason quotes numbers and names the counterparty chose, so its length is
+  // partly theirs to decide. the code sits ahead of all of that, which is what
+  // stops a 4KB service name from turning a typed entry into an untyped one.
+  const entry = refusalEntry({
+    code: REFUSAL.OVER_POSTED_PRICE,
+    reason: `bait-and-switch: "${'A'.repeat(4000)}" is demanding too much`,
+    recipient: MERCHANT,
+  });
+  assert.ok(Buffer.byteLength(entry.reason, 'utf8') <= MAX_REASON_BYTES);
+  assert.ok(entry.reason.startsWith('OVER_POSTED_PRICE: '));
+  assert.ok(entry.reason.endsWith('...'), 'and it still says it was cut');
+  assert.equal(readStamp(entry.reason).code, REFUSAL.OVER_POSTED_PRICE);
+});
+
+test('a refusal with no code is recorded exactly as it always was', () => {
+  // every entry already on-chain looks like this, and adding codes must not
+  // change how one of those reads back.
+  const entry = refusalEntry({ reason: 'recipient denylisted', recipient: MERCHANT });
+  assert.equal(entry.reason, 'recipient denylisted');
+  assert.deepEqual(readStamp(entry.reason), { code: null, reason: 'recipient denylisted' });
+});
+
+test('an empty reason with a code is still worth writing', () => {
+  const entry = refusalEntry({ code: REFUSAL.DAILY_CAP, recipient: MERCHANT });
+  assert.equal(entry.reason, 'DAILY_CAP');
 });

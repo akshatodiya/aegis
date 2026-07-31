@@ -226,6 +226,17 @@ and still print; they just stop being paid for. That is a deliberate trade -
 under attack the log goes incomplete rather than the float going empty - and it
 is the second reason an empty stretch of log proves nothing.
 
+One more thing worth being precise about, since it looks like a schema and isn't:
+entries now start with a refusal code (`DENYLISTED: ...`, `DAILY_CAP: ...`). The
+contract stores a single string, and it is deployed and verified, so that code is
+a **convention at the front of the prose**, not a typed field the contract knows
+about. Nothing on-chain validates it. What the position buys is narrow and real:
+an oversized reason is trimmed from the tail, so a merchant who makes the prose
+long cannot push the code out of the entry. Reading it back only recognizes codes
+`src/refusals.js` defines, so a reason that merely begins with something
+code-shaped stays prose - and entries written before codes existed have none,
+which is exactly how they should read.
+
 **9. The check page believes whatever the gateway tells it.** `web/check.html`
 runs the deterministic lanes in a reader's browser. It holds no key, signs
 nothing and sends no transaction, and the verdict it prints binds nothing - which

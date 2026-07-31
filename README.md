@@ -524,6 +524,48 @@ free read and `aegisCheck(recipient, amount)` runs the full off-chain analysis
 endpoint (other languages), or expose `guardedPay` as the "pay" tool your LLM
 agent is given in place of a raw transfer.
 
+### Reacting to a refusal
+
+Every refusal carries a prose reason, which is the right thing to show a person
+and the wrong thing to branch on. Beside it there is a code (`src/refusals.js`):
+
+```js
+import { REFUSAL } from './src/refusals.js'
+
+try {
+  await fetch('https://some-service/endpoint')
+} catch (err) {
+  if (err.code === REFUSAL.NO_APPROVER) queueForReview(err)     // nobody was around to ask
+  else if (err.code === REFUSAL.HUMAN_DECLINED) giveUp(err)     // a person actually said no
+  else if (err.code === REFUSAL.DAILY_CAP) retryTomorrow(err)   // the cap resets
+  else if (err.code === REFUSAL.DENYLISTED) stopUsing(err.recipient)
+}
+```
+
+Three properties are worth knowing, because they are what make the code worth
+having rather than a second thing to keep in sync:
+
+- **A code never decides anything.** It is attached on the same line that raised
+  the refusal, so it cannot drift from the reason it labels, and nothing inside
+  the firewall reads one back. Adding them changed no verdict anywhere, which is
+  exactly what the verdict tests that already existed are there to prove.
+- **Both rails speak it.** `aegisCheck` returns the lane code that decided, the
+  signer passes that through rather than flattening every policy refusal into
+  one word, and `AegisGuard`'s own on-chain strings and custom errors are mapped
+  onto the same vocabulary - so a denylisted recipient is `DENYLISTED` whether
+  the refusal happened in a contract or in a signer. That mapping is checked
+  against the contract's source *and* against the deployed bytecode, because a
+  contract that is verified on Arcscan cannot be edited to match a map.
+- **Unknown stays unknown.** Nothing guesses at the nearest code. An on-chain
+  reason this vocabulary has never seen comes back `UNKNOWN`, which is a thing
+  you can go and look at.
+
+In `AegisAuditLog` the code rides at the front of the stored reason, because the
+contract has one string field and is already deployed. The front is deliberate:
+an oversized reason is trimmed from the tail, so a merchant who makes the prose
+long cannot cut the code off the entry. `npm run audit-log` prints it as its own
+column, and entries written before codes existed read back exactly as they did.
+
 ### On Circle's agent-stack-starter-kits
 
 We looked at whether Aegis drops into Circle's own kits, and the honest answer is
@@ -564,8 +606,8 @@ drop-in that quietly loses its teeth.
 npm test
 ```
 
-155 cases, no fork / no testnet / no keys. 127 of them need no node at all; only the
-two contract suites (18 for the guard, 10 for the audit log) need `anvil`, and they look in `~/.foundry/bin` as well as on
+176 cases, no fork / no testnet / no keys. 147 of them need no node at all; only the
+two contract suites (19 for the guard, 10 for the audit log) need `anvil`, and they look in `~/.foundry/bin` as well as on
 your PATH, because `foundryup` only wires that directory into interactive shell profiles, so
 a CI runner or a plain `sh -c` can have foundry installed and still not see it. The guard suite spins up a local `anvil`
 node, deploys a mock USDC + the guard + the honeypot, and drives every policy path

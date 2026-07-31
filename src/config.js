@@ -30,6 +30,7 @@ const {
   GOOD_RECIPIENT,
   BAD_RECIPIENT,
   AEGIS_GUARD,
+  AEGIS_AUDIT_LOG,
   X402_WALLET,
   X402_PRIVATE_KEY,
 } = process.env;
@@ -110,6 +111,10 @@ export const addresses = {
   good: GOOD_RECIPIENT,
   bad: BAD_RECIPIENT,
   guard: AEGIS_GUARD, // the deployed AegisGuard, set after deploy-guard
+  // the deployed AegisAuditLog. optional everywhere: with it unset the audit
+  // logger turns itself off and every demo runs exactly as before, because this
+  // contract records refusals and never authorizes anything.
+  auditLog: AEGIS_AUDIT_LOG,
   // the agent's x402 signing wallet - holds only a float, refilled via the guard.
   // separate from the treasury on purpose (see ensureFloat in guard.js). if the
   // key is present we derive the address from it, so the two can never disagree.

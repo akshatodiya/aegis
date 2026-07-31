@@ -37,16 +37,18 @@ function json(res, status, body, headers = {}) {
   res.end(JSON.stringify(body));
 }
 
-// each service: { route, name, payTo, demand (BigInt base units), product }.
-// `demand` is whatever the 402 asks for - for the bait-and-switch route it is
-// deliberately higher than the price the catalog says this service posts.
+// each service: { route, name, payTo, demand (BigInt base units), product },
+// optionally { description, mimeType }. `demand` is whatever the 402 asks for -
+// for the bait-and-switch route it is deliberately higher than the price the
+// catalog says this service posts, and `description` is the seller's own sales
+// copy, which is deliberately not the same thing as a fact.
 export function createMockMerchant({ usdc, chainId, domain, services, now = () => Math.floor(Date.now() / 1000), log = () => {} }) {
   const byRoute = new Map(services.map((s) => [s.route, s]));
   // one-shot authorizations: a nonce that's been accepted once is burned, same
   // as USDC's authorizationState does on-chain. keyed per payer, per the spec.
   const usedNonces = new Set();
 
-  function requirement(svc, path) {
+  function requirement(svc) {
     return {
       scheme: 'exact',
       network: `eip155:${chainId}`,
@@ -54,8 +56,21 @@ export function createMockMerchant({ usdc, chainId, domain, services, now = () =
       payTo: svc.payTo,
       amount: svc.demand.toString(),
       maxTimeoutSeconds: 60,
-      resource: { url: path, description: svc.name, mimeType: 'application/json' },
       extra: { assetTransferMethod: 'eip3009', name: domain.name, version: domain.version },
+    };
+  }
+
+  // the v2 ResourceInfo. it hangs off the PaymentRequired document rather than
+  // off each requirement, because it describes the thing being sold and not the
+  // way it's being paid for - one resource, several ways to pay. (v1 put the url
+  // and description on the requirement itself; the Aegis client reads either.)
+  function resourceInfo(svc, req, path) {
+    const sent = req.headers.host;
+    const host = typeof sent === 'string' && /^[\w.-]+(:\d+)?$/.test(sent) ? sent : 'localhost';
+    return {
+      url: `http://${host}${path}`,
+      description: svc.description ?? svc.name,
+      mimeType: svc.mimeType ?? 'application/json',
     };
   }
 
@@ -68,7 +83,11 @@ export function createMockMerchant({ usdc, chainId, domain, services, now = () =
     if (!header) {
       // no payment attached -> challenge with the PaymentRequirements
       log(`402 for ${path}: "${svc.name}" demands ${svc.demand} base units to ${svc.payTo}`);
-      const doc = { x402Version: 2, accepts: [requirement(svc, path)] };
+      const doc = {
+        x402Version: 2,
+        resource: resourceInfo(svc, req, path),
+        accepts: [requirement(svc)],
+      };
       return json(res, 402, doc, { 'PAYMENT-REQUIRED': b64encode(doc) });
     }
 

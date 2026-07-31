@@ -36,6 +36,57 @@ const TRANSFER_TYPES = {
 const b64encode = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64');
 const b64decode = (s) => JSON.parse(Buffer.from(s, 'base64').toString('utf8'));
 
+// how much of the seller's copy we're willing to carry, in characters.
+const LIMITS = { url: 200, description: 160, mimeType: 64 };
+
+// Clean one string the counterparty wrote.
+//
+// This is the only text in the whole rail that a seller composes and a human
+// then reads while deciding whether to release money, so it is handled as
+// hostile input rather than as a label:
+//   - control bytes go. an ANSI escape can repaint a terminal and a carriage
+//     return can overwrite the line above it, which is enough to forge the
+//     prompt itself. they become spaces rather than vanishing, so "a<ESC>b"
+//     can't quietly close up into a word nobody sent.
+//   - the bidi overrides and zero-width characters go. they reorder what a
+//     reader sees without changing what a program compares.
+//   - whitespace collapses, so the seller gets one line and cannot lay out
+//     something that looks like our own output underneath it.
+//   - and it's capped, because the party asking for money doesn't get to decide
+//     how much of the screen the question occupies.
+// What survives is quoted and attributed when it's shown. This defangs the
+// formatting, not the meaning: a description can still be an outright lie, and
+// nothing here is treated as evidence of anything. See THREAT-MODEL.md.
+function cleanText(value, limit) {
+  if (typeof value !== 'string') return null;
+  const flat = value
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
+    .replace(/[\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!flat) return null;
+  // slice by code point, so a cap can't land in the middle of a surrogate pair
+  const chars = Array.from(flat);
+  return chars.length <= limit ? flat : `${chars.slice(0, limit - 3).join('')}...`;
+}
+
+// What the seller says it is selling. x402 carries this two ways and we take
+// either: in v1 `resource` is the url string with `description` and `mimeType`
+// beside it on the requirement, and in v2 it's a ResourceInfo object
+// { url, description, mimeType } hung off the PaymentRequired document rather
+// than off any single requirement. Returns null when there's nothing to show,
+// and never throws - a mangled description is not a reason to refuse a payment
+// whose terms are fine, it's just a description we won't repeat.
+function resourceInfo(source) {
+  if (!source || typeof source !== 'object') return null;
+  const raw = source.resource;
+  const obj = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const url = cleanText(typeof raw === 'string' ? raw : obj.url, LIMITS.url);
+  const description = cleanText(obj.description ?? source.description, LIMITS.description);
+  const mimeType = cleanText(obj.mimeType ?? source.mimeType, LIMITS.mimeType);
+  return url || description || mimeType ? { url, description, mimeType } : null;
+}
+
 // read the PaymentRequirements out of a 402, tolerating both the header-carried
 // (base64) form and a JSON body, and both the single-object and { accepts: [...] }
 // shapes. also work out which x402 version we're talking to so the reply matches.
@@ -50,7 +101,7 @@ async function parseRequirements(res) {
   if (!doc) {
     doc = await res.clone().json().catch(() => null);
   }
-  if (!doc || typeof doc !== 'object') return { options: [], version: 2 };
+  if (!doc || typeof doc !== 'object') return { options: [], version: 2, resource: null };
 
   const options = Array.isArray(doc) ? doc : Array.isArray(doc.accepts) ? doc.accepts : [doc];
   // v2 carries requirements in the header and uses `amount`; v1 is a JSON body
@@ -58,7 +109,16 @@ async function parseRequirements(res) {
   let version = 2;
   if (Number(doc.x402Version) === 1) version = 1;
   else if (!fromHeader && options.some((o) => o && o.maxAmountRequired != null && o.amount == null)) version = 1;
-  return { options, version };
+  // the v2 ResourceInfo describes the whole document, so it's read here rather
+  // than per requirement. v1's lives on each requirement; normalize() takes that.
+  return { options, version, resource: resourceInfo(doc) };
+}
+
+// what the agent actually asked for, as a string. fetch takes a url, a URL or a
+// Request, and only the last of those hides the address behind a property.
+function href(url) {
+  if (typeof url === 'string') return url;
+  return typeof url?.url === 'string' ? url.url : String(url);
 }
 
 // chainId can arrive as "eip155:5042002" or a bare number. anchor the match so
@@ -88,6 +148,9 @@ function normalize(opt) {
     payTo: opt.payTo,
     amount: BigInt(amountStr),
     maxTimeoutSeconds: timeout,
+    // decoration, not terms: it is shown to a human, never compared against
+    // anything and never signed. cleaned on the way in all the same.
+    resource: resourceInfo(opt),
   };
 }
 
@@ -127,8 +190,17 @@ export function createAegisX402Fetch(opts = {}) {
     // ASK_HUMAN lane lives for x402: over the cap, we stop and put a human in
     // the loop instead of silently paying or silently dropping.
     maxPerPayment = null,
-    // async ({ service, amount, cap }) => boolean. no handler wired = nobody to
-    // ask = fail closed and refuse. the demo passes a readline y/N prompt here.
+    // async ({ service, amount, cap, resource, requestUrl }) => boolean. no
+    // handler wired = nobody to ask = fail closed and refuse. the demo passes a
+    // readline y/N prompt here.
+    //
+    // `service` is what our own catalog says it is; `resource` is what the
+    // seller says it is selling, cleaned by cleanText and possibly null. Both
+    // are handed over precisely because they can disagree, and the human is the
+    // one who should get to notice that. A handler that shows them must keep
+    // them apart - the party asking for the money doesn't get to narrate the
+    // question. `requestUrl` is the url the agent actually asked for, which is
+    // not necessarily the url the 402 claims to be describing.
     askHuman = null,
     // fired on every refusal, same shape as the signer's hook. this rail refuses
     // in two places - here, on context the signer cannot see, and in the signer
@@ -181,7 +253,7 @@ export function createAegisX402Fetch(opts = {}) {
     if (res.status !== 402) return res;
 
     log(`402 from ${url} - screening the payment demand...`);
-    const { options, version } = await parseRequirements(res);
+    const { options, version, resource: offered } = await parseRequirements(res);
     const option = selectOption(options, { chainId, usdc });
     if (!option) {
       throw new AegisPaymentRefused(
@@ -189,9 +261,16 @@ export function createAegisX402Fetch(opts = {}) {
       );
     }
 
+    // the requirement's own ResourceInfo (v1) if it has one, else the
+    // document's (v2). the specific one wins; either may be missing entirely.
+    const resource = option.resource ?? offered;
+
     // from here on we know who wants paying and how much, so every refusal can
-    // say so - that pair is what makes an audit entry worth reading.
-    const about = { recipient: option.payTo, amount: option.amount };
+    // say so - that pair is what makes an audit entry worth reading. the
+    // resource rides along for whoever prints the refusal; it is deliberately
+    // NOT folded into the reason string, because reasons get written on-chain
+    // (src/audit.js) and the seller does not get to choose what our receipts say.
+    const about = { recipient: option.payTo, amount: option.amount, resource };
 
     // (A) context checks the signer can't do - is this a known service at a sane price?
     const service = catalog.lookup(option.payTo);
@@ -213,14 +292,32 @@ export function createAegisX402Fetch(opts = {}) {
     // STILL run its own checks after a yes; approval here doesn't bypass hook B.
     if (maxPerPayment != null && option.amount > maxPerPayment) {
       log(`  "${service.name}" costs ${option.amount} base units, over the ${maxPerPayment} per-payment cap - asking a human.`);
-      const approved = askHuman
-        ? await askHuman({ service, amount: option.amount, cap: maxPerPayment })
-        : false;
+      let approved = false;
+      let promptFailed = null;
+      if (askHuman) {
+        try {
+          approved = Boolean(await askHuman({
+            service,
+            amount: option.amount,
+            cap: maxPerPayment,
+            resource,
+            requestUrl: href(url),
+          }));
+        } catch (err) {
+          // a prompt that breaks is not a yes. it also isn't nothing: let the
+          // throw escape as-is and this stops being an AegisPaymentRefused, so
+          // onRefuse never fires and a refusal that really happened leaves no
+          // receipt. name it and fail closed.
+          promptFailed = err?.shortMessage || err?.message || String(err);
+        }
+      }
       if (!approved) {
         throw new AegisPaymentRefused(
-          askHuman
-            ? `human declined the over-cap payment (${option.amount} > cap ${maxPerPayment} base units).`
-            : `payment of ${option.amount} base units exceeds the per-payment cap ${maxPerPayment} and no human is wired in to approve it.`,
+          promptFailed
+            ? `the over-cap approval prompt failed (${promptFailed}) - nobody answered, so this is a no.`
+            : askHuman
+              ? `human declined the over-cap payment (${option.amount} > cap ${maxPerPayment} base units).`
+              : `payment of ${option.amount} base units exceeds the per-payment cap ${maxPerPayment} and no human is wired in to approve it.`,
           DECISION.ASK_HUMAN, about,
         );
       }
@@ -231,7 +328,20 @@ export function createAegisX402Fetch(opts = {}) {
 
     // (B) sign through the guard, then replay the request with the payment. one
     // header, matching the version the server spoke.
-    const paymentHeader = await pay(option, version);
+    //
+    // a refusal raised in there is about this same payment, but the signer is
+    // deliberately ignorant of the 402 - it re-derives everything from the
+    // authorization it was handed - so it cannot say what was being sold. that
+    // one field is filled in here, where we do know, and only if it's empty.
+    // the reason, the verdict and the amount are the signer's own and are left
+    // exactly as it wrote them.
+    let paymentHeader;
+    try {
+      paymentHeader = await pay(option, version);
+    } catch (err) {
+      if (err instanceof AegisPaymentRefused && err.resource == null) err.resource = resource;
+      throw err;
+    }
     const headers = new Headers(init.headers || {});
     headers.set(version === 1 ? 'X-PAYMENT' : 'PAYMENT-SIGNATURE', paymentHeader);
     log('  payment signed and attached, retrying request.');

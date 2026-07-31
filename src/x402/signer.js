@@ -49,6 +49,12 @@ export class AegisPaymentRefused extends Error {
     // log records that as the zero address rather than inventing a recipient.
     this.recipient = about.recipient ?? null;
     this.amount = about.amount ?? null;
+    // what the seller said it was selling, cleaned, when the refusal happened
+    // somewhere that had it (the fetch wrapper does; this signer never sees the
+    // 402 at all). here so a caller printing the refusal can say what was on
+    // offer. it is NOT part of `reason`, and the audit log only records reason -
+    // seller-written prose doesn't get to become our on-chain receipt.
+    this.resource = about.resource ?? null;
   }
 }
 

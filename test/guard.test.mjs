@@ -171,6 +171,71 @@ test('guardedPay: a non-agent caller is rejected', async () => {
   );
 });
 
+// ---- the kill switch ----
+// the tests above cover a caller who was never an agent. these cover revoking
+// one that is, which is the thing an operator actually does when the agent
+// starts behaving oddly, and the ordering that makes it worth doing.
+
+test('revoking a live agent stops the payment that worked a moment ago', async () => {
+  await send(guard, GUARD.abi, 'guardedPay', [bob, usd(10)]);
+
+  await send(guard, GUARD.abi, 'setAgent', [owner.address, false]);
+  assert.equal(
+    await pub.readContract({ address: guard, abi: GUARD.abi, functionName: 'isAgent', args: [owner.address] }),
+    false,
+  );
+
+  await expectRevert(
+    () => pub.simulateContract({ address: guard, abi: GUARD.abi, functionName: 'guardedPay', args: [bob, usd(10)], account: owner }),
+    'NotAgent',
+  );
+
+  // and back, in one transaction. the cost of revoking a healthy agent is that
+  // it stops paying until you undo it, which is what makes it safe to reach for
+  // on suspicion rather than on proof.
+  await send(guard, GUARD.abi, 'setAgent', [owner.address, true]);
+  await send(guard, GUARD.abi, 'guardedPay', [bob, usd(10)]);
+});
+
+test('revocation is checked before policy, so it stops payments policy likes', async () => {
+  // guardedPay checks isAgent on its first line and only then calls assess, so a
+  // revoked agent is refused with NotAgent rather than Denied - no judgement
+  // about the recipient is involved or even reached. that is the difference
+  // between a kill switch and one more rule: every other rule needs the payment
+  // to look wrong, and this one doesn't. bob is still clear here, and the guard
+  // says so, and the payment is refused anyway.
+  await send(guard, GUARD.abi, 'setAgent', [owner.address, false]);
+
+  const verdict = await assess(bob, 10);
+  assert.equal(verdict.verdict, V.PAY);
+  assert.equal(verdict.reason, 'clear');
+
+  await expectRevert(
+    () => pub.simulateContract({ address: guard, abi: GUARD.abi, functionName: 'guardedPay', args: [bob, usd(10)], account: owner }),
+    'NotAgent',
+  );
+});
+
+test('setDailyLimit(0) removes the cap, it does not freeze spending', async () => {
+  // worth a test because it reads the other way round, and an owner reaching for
+  // it mid-incident would be removing the only rate limit in the contract rather
+  // than closing it. assess treats 0 as "no cap configured" (`dailyLimit != 0 &&
+  // ...`), so this is the off switch, not the stop switch.
+  await send(guard, GUARD.abi, 'setDailyLimit', [0n]);
+  assert.equal((await assess(bob, 100_000)).verdict, V.PAY); // far past the old 100
+  await send(guard, GUARD.abi, 'guardedPay', [bob, usd(1000)]); // and it lands
+
+  // the freeze is one base unit: any payment worth making is then over the cap.
+  await send(guard, GUARD.abi, 'setDailyLimit', [1n]);
+  const frozen = await assess(bob, 1);
+  assert.equal(frozen.verdict, V.REVIEW);
+  assert.equal(frozen.reason, 'over daily limit');
+  await expectRevert(
+    () => pub.simulateContract({ address: guard, abi: GUARD.abi, functionName: 'guardedPay', args: [bob, usd(1)], account: owner }),
+    'over daily limit',
+  );
+});
+
 test('guardedPay: paying the honeypot reverts (unvetted contract)', async () => {
   await expectRevert(
     () => pub.simulateContract({ address: guard, abi: GUARD.abi, functionName: 'guardedPay', args: [honeypot, usd(10)], account: owner }),

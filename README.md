@@ -39,8 +39,9 @@ Everything below is deployed and exercised on Arc testnet
 |------|--------------|---|
 | `AegisGuard` | [`0xb95f…728d`](https://testnet.arcscan.app/address/0xb95f9c997235150d5f43b7c05897bb8e0173728d) | the firewall contract - agents pay through it (treasury approves it, daily cap 100 USDC) |
 | `HoneypotVault` | [`0x9a0d…de9c`](https://testnet.arcscan.app/address/0x9a0da68c0f9654bd7110e928f229b7c4c216de9c) | the demo villain (see below) |
+| `AegisAuditLog` | [`0xbce4…7659`](https://testnet.arcscan.app/address/0xbce4621b1347940bf7930707f83c6a5d1e797659) | the x402 rail's receipts - records refusals, enforces nothing |
 
-Two receipts a judge can open:
+Three receipts a judge can open:
 
 - **a hijacked agent tries to drain the treasury and the chain says no** -
   [reverted `guardedPay`](https://testnet.arcscan.app/tx/0xfe0434b5190fdda2d294296162903b13e0e78fb5717257b23e73160ceb5b8ade).
@@ -49,6 +50,11 @@ Two receipts a judge can open:
 - **a payment that *was* allowed through** -
   [a guarded transfer that settled](https://testnet.arcscan.app/tx/0x6acc8c6c507c4f6ed155551d9e6bcf579facb49e017717199d8ac5f5b5337481)
   (this one tops up the x402 float wallet - see the x402 rail below).
+- **a refusal on the rail where refusals leave no transaction** -
+  [an x402 payment Aegis declined to sign](https://testnet.arcscan.app/tx/0xf116f20f87bd836cd6d77057790770e04c344bd91b748d5ac4a7865688de12c3),
+  a merchant demanding 50x its posted price. Nothing was broadcast, because
+  nothing was signed - so this entry is a receipt written afterwards, not the
+  refusal itself. The difference matters and is spelled out below.
 
 ## How the decision is made
 
@@ -166,6 +172,40 @@ the *float refill*, not the merchant. Qualitative vetting of an x402 payee is do
 by the signer's `aegisCheck(payTo)`, not by the on-chain guard. The daily limit is
 the only guard property that reaches this rail.
 
+### Receipts for what was refused
+
+A refusal on the treasury rail is already public: `guardedPay` reverts and the
+failed transaction sits on Arcscan for anyone to open. The x402 rail has no such
+artifact, and that follows directly from what makes it worth guarding - the
+payment is a signature, so a refusal is a signature that was never created.
+Nothing is broadcast, nothing is mined, and the strongest evidence the firewall
+did anything is a line of console output on the machine that refused.
+
+`AegisAuditLog` is where that line goes. Both x402 hooks report refusals to it
+(`src/audit.js`), and it records who we declined to pay, how much, which verdict,
+and the reason the agent printed.
+
+What an entry is worth, exactly:
+
+- it proves a reporter *said* it refused a payment. It cannot prove one was
+  stopped - by the time the log is written, the signature was already never made.
+- **an empty log is not evidence that nothing was refused.** A compromised agent
+  simply never calls it.
+- only reporters the owner authorized can write, which bounds forgery by
+  outsiders and nothing else. The log is as truthful as the key writing it.
+
+It sits in no payment path: no verdict depends on it, `npm run x402-demo` behaves
+identically with `AEGIS_AUDIT_LOG` unset, logging can't delay or break a refusal
+(the hook is synchronous and the write goes out behind it), and it is a separate
+contract so the verified guard never had to be redeployed to get it. This is the
+x402 rail's equivalent of a reverted transaction, not a second firewall.
+
+Writing a receipt is the one part of a refusal that costs money, and the attacker
+picks how many refusals happen, so both dimensions are capped: 256 bytes per
+reason (a reason quotes the wire, and the demanded amount only has to be digits),
+and 25 receipts per run. Past that, refusals continue and receipts stop, out
+loud. Under attack the log goes incomplete rather than the float going empty.
+
 ## How the two layers connect
 
 The off-chain analyzer and the on-chain guard aren't two separate opinions that
@@ -272,6 +312,15 @@ npm run x402-demo         # spins up a local mock merchant and walks the beats:
                           #   2a a bait-and-switch merchant (demands 5 USDC vs 0.10 posted) -> refused, unsigned
                           #   2b a service with a malicious payTo -> refused, unsigned  (needs BAD_RECIPIENT)
                           #   3  a purchase over the per-payment cap -> ASK_HUMAN (y/N)
+                          #   4  every refusal above, written to the audit log on-chain
+```
+
+Beat 4 needs the log deployed, and skips itself with a note when it isn't:
+
+```bash
+npm run deploy-audit-log  # deploy AegisAuditLog, paste address into .env as AEGIS_AUDIT_LOG
+                          #   (also authorizes your wallet as a reporter)
+npm run audit-log         # read the refusals back - a plain read, no key needed
 ```
 
 ### Aegis on the selling side
@@ -404,8 +453,8 @@ drop-in that quietly loses its teeth.
 npm test
 ```
 
-91 cases, no fork / no testnet / no keys. 76 of them need no node at all; only the
-15-case guard suite needs `anvil`, and it looks in `~/.foundry/bin` as well as on
+116 cases, no fork / no testnet / no keys. 91 of them need no node at all; only the
+two contract suites (15 for the guard, 10 for the audit log) need `anvil`, and they look in `~/.foundry/bin` as well as on
 your PATH, because `foundryup` only wires that directory into interactive shell profiles, so
 a CI runner or a plain `sh -c` can have foundry installed and still not see it. The guard suite spins up a local `anvil`
 node, deploys a mock USDC + the guard + the honeypot, and drives every policy path
@@ -421,7 +470,12 @@ at exactly the right boundary. The behavior suite covers both halves of that lan
 the pure verdict, including the dust-payment case below, and the `getLogs` read
 itself against a stub JSON-RPC server, so the block window, the recipient topic
 filter and the 6-decimal conversion are pinned rather than only ever exercised in a
-live demo.
+live demo. The audit-log suites cover both ends of the receipt: on-chain, that a
+stranger can't write, that a `PAY` can't be recorded at all, that nothing lands
+without a reason, and that a merchant can't choose how large an entry is; offline,
+that the logger survives the failure path it lives on - one entry per refusal even
+when both hooks report it, a write that fails recorded rather than thrown, and the
+refusal never waiting on the receipt.
 
 ## Also runs on Sepolia
 

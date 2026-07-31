@@ -36,6 +36,12 @@ decides (price, registry, domain pinning, per-payment cap) and the signer
 enforces. This rail is only as strong as the process holding the signing key. If
 the attacker gets that key directly, there's no second line.
 
+The two rails also leave different traces, which is a smaller difference but not
+a cosmetic one. A treasury-rail refusal is a reverted transaction anyone can
+open; an x402 refusal is a signature that was never created, so by default it
+leaves nothing anywhere. `AegisAuditLog` gives that case something to point at,
+and item 8 below is careful about what that is and isn't worth.
+
 ## What Aegis stops
 
 - A hijacked agent calling `guardedPay` against a flagged recipient. Reverts
@@ -169,6 +175,38 @@ inside `guardedPay`. That's the contract doing its job, not the off-chain lane
 having data behind it.
 
 **7. Naming a Circle contract isn't vouching for it.** See below.
+
+**8. The audit log records refusals, it doesn't make them.** `AegisAuditLog`
+closes the trace asymmetry above, and it is the one piece of this project most
+likely to be read as more than it is, so:
+
+- It runs *after* the decision and off the payment path. No verdict depends on
+  it, logging can't delay or break a refusal, and deleting `AEGIS_AUDIT_LOG` from
+  `.env` changes nothing about what Aegis refuses.
+- **Absence proves nothing.** A compromised agent skips this write exactly as
+  easily as it skips any other off-chain step. An empty log is not evidence that
+  nothing was refused, and reading it that way has the guarantee backwards.
+- An entry proves a reporter *said* it refused a payment. It does not prove a
+  payment was demanded, and it cannot prove one was stopped - the signature was
+  already never created by the time anything gets written. Writes are gated to
+  reporters the owner authorized, so a stranger can't mint entries that look like
+  ours; that bounds forgery by outsiders and nothing else. The log is exactly as
+  truthful as the key writing it.
+- It's a separate contract on purpose. `AegisGuard` is verified on Arc and stays
+  untouched, and the log holds no funds, no allowance and no authority.
+
+Two gas ceilings on it are deliberate, because writing a receipt is the one part
+of a refusal that costs money, and on Arc that money is the same USDC. *Entry
+size:* reason strings quote the wire, and a demanded amount only has to be digits
+to reach them, so a hostile `402` could otherwise choose how much an entry costs
+to write - the contract caps a reason at 256 bytes and `src/audit.js` trims to
+the same number before sending. *Entry count:* refusing is free until it's
+written, so an agent aimed at a hostile service in a loop would pay for a receipt
+per refusal, and the attacker picks the loop. The logger writes at most 25
+receipts per run and says so when it stops. Past that the refusals still happen
+and still print; they just stop being paid for. That is a deliberate trade -
+under attack the log goes incomplete rather than the float going empty - and it
+is the second reason an empty stretch of log proves nothing.
 
 ## Designs that were dropped on purpose
 

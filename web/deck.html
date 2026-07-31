@@ -379,11 +379,16 @@
             <p class="val"><a class="mono" href="https://testnet.arcscan.app/address/0x9a0da68c0f9654bd7110e928f229b7c4c216de9c">0x9a0d&hellip;de9c</a></p>
             <p class="note">delegatecall proxy, selfdestruct, tx.origin: the Parity-freeze shape</p>
           </div>
+          <div class="card">
+            <p class="lab">AegisAuditLog</p>
+            <p class="val"><a class="mono" href="https://testnet.arcscan.app/address/0xbce4621b1347940bf7930707f83c6a5d1e797659">0xbce4&hellip;7659</a></p>
+            <p class="note">receipts for x402 refusals, which otherwise leave no transaction at all</p>
+          </div>
         </div>
         <ul class="pts green compact" style="margin-top:24px">
           <li>Chain <b>5042002</b>, explorer <b>testnet.arcscan.app</b>, USDC as the native gas token.</li>
-          <li>The reverted drain and the settled payment above are <b>real receipts</b> a judge can open.</li>
-          <li><b>91 tests</b>, no fork and no keys: the guard, the signer, the bytecode lane, and a real localhost x402 merchant.</li>
+          <li>The reverted drain, the settled payment and a refused x402 payment are <b>real receipts</b> a judge can open.</li>
+          <li><b>116 tests</b>, no fork and no keys: the guard, the signer, the bytecode lane, and a real localhost x402 merchant.</li>
         </ul>
       </div>
     </section>
@@ -433,7 +438,8 @@ const fetch =
               <li>AegisGuard deployed and enforcing on Arc, with real reverted and settled receipts.</li>
               <li>Bytecode lane reading live Arc code; x402 signer, fetch wrapper and JIT float in place.</li>
               <li>Treasury split off the agent: the hot key holds about 3% of the money, not all of it.</li>
-              <li>91 tests, 76 of them needing no node at all.</li>
+              <li>Refusals on the x402 rail written to an on-chain audit log, so the rail that leaves no transaction still leaves a receipt.</li>
+              <li>116 tests, 91 of them needing no node at all.</li>
               <li>A written threat model, including the designs that were attacked and dropped.</li>
             </ul>
           </div>

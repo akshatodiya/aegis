@@ -7,6 +7,8 @@
     "balance": "node scripts/check-balance.js",
     "deploy-bad": "node scripts/deploy-bad-contract.js",
     "deploy-guard": "node scripts/deploy-guard.js",
+    "deploy-audit-log": "node scripts/deploy-audit-log.js",
+    "audit-log": "node scripts/audit-log.js",
     "guard-setup": "node scripts/guard-setup.js",
     "treasury-approve": "node scripts/treasury-approve.js",
     "rotate-keys": "node scripts/rotate-keys.js",

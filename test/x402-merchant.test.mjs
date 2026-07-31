@@ -67,6 +67,24 @@ function client({ recorded = [], intercept = false } = {}) {
   });
 }
 
+test('the 402 says what is for sale, where the spec puts it', async () => {
+  // x402 v2 hangs the ResourceInfo off the PaymentRequired document rather than
+  // off each requirement (spec 5.1.2) - one resource, possibly several ways to
+  // pay for it. the client reads it from there; this pins the merchant sending
+  // it from there, so the two halves of the demo can't drift apart.
+  const res = await fetch(`${base}/data`);
+  assert.equal(res.status, 402);
+  const doc = await res.json();
+  assert.equal(doc.resource.url, `${base}/data`);
+  assert.equal(doc.resource.mimeType, 'application/json');
+  assert.equal(typeof doc.resource.description, 'string');
+  assert.equal(doc.accepts[0].resource, undefined);
+  // and the header-carried copy says the same thing, since a client may read
+  // either one and must not get a different answer depending which it chose.
+  const header = JSON.parse(Buffer.from(res.headers.get('PAYMENT-REQUIRED'), 'base64').toString());
+  assert.deepEqual(header.resource, doc.resource);
+});
+
 test('full round trip: 402 challenge -> signed authorization -> verified -> 200', async () => {
   const aegisFetch = client();
   const res = await aegisFetch(`${base}/data`);

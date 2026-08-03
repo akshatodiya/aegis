@@ -4,7 +4,7 @@
 // wiring: treasury approves the guard for USDC and the owner whitelists the
 // caller as an agent.
 import { parseUnits, formatUnits, erc20Abi, keccak256 } from 'viem';
-import { publicClient, requireWallet, addresses, assertAddress, txUrl, account } from './config.js';
+import { publicClient, requireWallet, addresses, assertAddress, txUrl, account, waitForSuccess } from './config.js';
 import { compileGuard } from './compile.js';
 import { guardReasonCode } from './refusals.js';
 
@@ -70,7 +70,7 @@ export async function setupGuard(allowanceUSDC = 1000) {
     args: [guard, parseUnits(String(allowanceUSDC), 6)],
     account,
   });
-  await publicClient.waitForTransactionReceipt({ hash: approveHash });
+  await waitForSuccess(approveHash, `approve(${guard})`);
 
   console.log(`  -> authorizing agent ${account.address} ...`);
   const agentHash = await walletClient.writeContract({
@@ -80,7 +80,11 @@ export async function setupGuard(allowanceUSDC = 1000) {
     args: [account.address, true],
     account,
   });
-  await publicClient.waitForTransactionReceipt({ hash: agentHash });
+  // both of these have to have landed for "guard ready" to be true: without the
+  // approval the guard cannot pull from the treasury, and without setAgent the
+  // caller cannot invoke guardedPay. announcing readiness on a reverted setup
+  // moves the failure to the first payment, where it reads as a policy refusal.
+  await waitForSuccess(agentHash, `setAgent(${account.address}, true)`);
 
   console.log('  -> guard ready.');
 }
@@ -314,7 +318,11 @@ export async function recordVerdictOnChain(to) {
       const hash = await walletClient.writeContract({
         address: guard, abi: guardAbi(), functionName: 'setBlockedCodehash', args: [codehash, true], account,
       });
-      await publicClient.waitForTransactionReceipt({ hash });
+      // a reverted write here would otherwise be announced as "kills every clone
+      // of this exact code" while the codehash mapping is untouched, which is a
+      // protection the demo claims and does not have. the catch below turns this
+      // into an honest "could not record on-chain".
+      await waitForSuccess(hash, 'setBlockedCodehash');
       return { changed: true, message: `blocked its bytecode ${codehash.slice(0, 10)}... on-chain (kills every clone of this exact code).`, hash };
     }
 
@@ -328,7 +336,7 @@ export async function recordVerdictOnChain(to) {
     const hash = await walletClient.writeContract({
       address: guard, abi: guardAbi(), functionName: 'setDenylisted', args: [to, true], account,
     });
-    await publicClient.waitForTransactionReceipt({ hash });
+    await waitForSuccess(hash, 'setDenylisted');
     return { changed: true, message: `denylisted ${to} on-chain.`, hash };
   } catch (err) {
     // e.g. run by someone who isn't the guard owner - degrade instead of crash.
@@ -375,7 +383,7 @@ export async function allowlistOnChain(to) {
     const hash = await walletClient.writeContract({
       address: guard, abi: guardAbi(), functionName: 'setAllowedContract', args: [to, true], account,
     });
-    await publicClient.waitForTransactionReceipt({ hash });
+    await waitForSuccess(hash, 'setAllowedContract');
     return { changed: true, message: `allowlisted ${to} on-chain.`, hash };
   } catch (err) {
     return { changed: false, message: `could not allowlist on-chain: ${err.shortMessage || err.message}` };

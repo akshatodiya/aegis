@@ -2,7 +2,7 @@
 // contracts/HoneypotVault.sol, so the deployed code is real solidity output
 // (delegatecall proxy + selfdestruct + tx.origin) rather than a toy stub.
 // the bytecode lane flags it HIGH -> the engine BLOCKs paying it.
-import { publicClient, requireWallet, addressUrl } from '../src/config.js';
+import { publicClient, requireWallet, addressUrl, waitForSuccess } from '../src/config.js';
 import { compileContract } from '../src/compile.js';
 
 // danger opcodes we expect to see in the deployed runtime (sanity check)
@@ -29,7 +29,7 @@ async function main() {
   const hash = await walletClient.deployContract({ abi, bytecode, account });
   console.log(`  tx: ${hash}`);
 
-  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  const receipt = await waitForSuccess(hash, 'the HoneypotVault deployment');
   const addr = receipt.contractAddress;
 
   const code = await publicClient.getCode({ address: addr });

@@ -40,7 +40,7 @@
 //   NEW_TREASURY=0x.. npm run rotate-keys -- --execute
 import { erc20Abi, formatUnits, isAddress } from 'viem';
 import {
-  publicClient, requireWallet, addresses, assertAddress, txUrl, chain,
+  publicClient, requireWallet, addresses, assertAddress, txUrl, chain, waitForSuccess,
 } from '../src/config.js';
 import { compileGuard } from '../src/compile.js';
 
@@ -165,7 +165,12 @@ async function main() {
   for (const [functionName, args, why] of steps) {
     console.log(`  -> ${why} ...`);
     const hash = await walletClient.writeContract({ address: guard, abi, functionName, args, account });
-    await publicClient.waitForTransactionReceipt({ hash });
+    // confirmed, not merely mined. the order above exists so there is never a
+    // window with nobody able to pay, and that only holds if a failed step stops
+    // the ones after it - authorising the new agent and then not revoking the old
+    // one is recoverable, revoking the old one after failing to authorise the new
+    // one leaves the guard with no agent at all.
+    await waitForSuccess(hash, `${functionName}(${args.join(', ')})`);
     console.log(`     ${txUrl(hash)}`);
   }
 

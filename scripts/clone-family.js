@@ -20,7 +20,7 @@
 //   npm run clone-family -- 3   deploy 3
 import { keccak256, formatUnits } from 'viem';
 import {
-  publicClient, requireWallet, addresses, assertAddress, txUrl,
+  publicClient, requireWallet, addresses, assertAddress, txUrl, waitForSuccess,
 } from '../src/config.js';
 import { compileGuard } from '../src/compile.js';
 import { checkBytecode } from '../src/lanes/bytecode.js';
@@ -56,7 +56,7 @@ async function main() {
   const clones = [];
   for (let i = 0; i < count; i++) {
     const hash = await walletClient.sendTransaction({ account, data: cloneInitCode(impl) });
-    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    const receipt = await waitForSuccess(hash, 'the clone deployment');
     clones.push(receipt.contractAddress);
     console.log(`  clone ${i + 1}  ${receipt.contractAddress}   ${txUrl(hash)}`);
   }

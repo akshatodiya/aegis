@@ -12,7 +12,7 @@
 // refuses - skip the deploy and every demo runs the same, just without receipts.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { publicClient, requireWallet, addressUrl, txUrl, chain } from '../src/config.js';
+import { publicClient, requireWallet, addressUrl, txUrl, chain, waitForSuccess } from '../src/config.js';
 import { compileContract, compileInput } from '../src/compile.js';
 
 async function main() {
@@ -25,7 +25,7 @@ async function main() {
   const hash = await walletClient.deployContract({ abi, bytecode, account });
   console.log(`  tx: ${hash}`);
 
-  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  const receipt = await waitForSuccess(hash, 'the AegisAuditLog deployment');
   const addr = receipt.contractAddress;
   console.log(`\nDeployed at: ${addr}`);
   console.log(`   explorer: ${addressUrl(addr)}`);
@@ -36,7 +36,9 @@ async function main() {
   const setHash = await walletClient.writeContract({
     address: addr, abi, functionName: 'setReporter', args: [account.address, true], account,
   });
-  await publicClient.waitForTransactionReceipt({ hash: setHash });
+  // if this reverts the contract exists and refuses every write, so the demos
+  // would run, refuse payments correctly, and quietly record none of it.
+  await waitForSuccess(setHash, `setReporter(${account.address}, true)`);
   console.log(`  ${txUrl(setHash)}`);
 
   // an audit log nobody can read the source of is a weaker receipt: an explorer

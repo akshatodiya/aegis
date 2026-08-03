@@ -19,7 +19,7 @@
 //   npm run one-pot -- --burn  sends a 0-value self-transaction (costs gas)
 import { erc20Abi, formatUnits } from 'viem';
 import {
-  publicClient, account, addresses, assertAddress, chain, requireWallet, txUrl,
+  publicClient, account, addresses, assertAddress, chain, requireWallet, txUrl, waitForSuccess,
 } from '../src/config.js';
 import { compileGuard } from '../src/compile.js';
 
@@ -86,7 +86,7 @@ async function main() {
   const { walletClient } = requireWallet();
   console.log('\n  sending a 0-value self-transaction (moves no ERC-20, only burns gas) ...');
   const hash = await walletClient.sendTransaction({ account, to: who, value: 0n });
-  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  const receipt = await waitForSuccess(hash, 'the transfer');
   console.log(`  ${txUrl(hash)}`);
 
   const after = await balances(who, usdc);

@@ -24,9 +24,7 @@ import {
 } from '../src/config.js';
 import { compileGuard } from '../src/compile.js';
 import { checkBytecode } from '../src/lanes/bytecode.js';
-import { recordVerdictOnChain } from '../src/guard.js';
-
-const VERDICT = ['PAY', 'BLOCK', 'REVIEW'];
+import { recordVerdictOnChain, verdictName } from '../src/guard.js';
 
 // EIP-1167. the first 10 bytes are the constructor (return the 45 bytes that
 // follow); the rest is the runtime that delegatecalls to `impl` forever.
@@ -85,7 +83,7 @@ async function main() {
   console.log('\nGuard verdicts before blocking:');
   for (const addr of clones) {
     const [v, why] = await assess(addr);
-    console.log(`  ${addr}  ${VERDICT[v]}  (${why})`);
+    console.log(`  ${addr}  ${verdictName(v)}  (${why})`);
   }
 
   // one write, derived from clone 1 only
@@ -97,8 +95,8 @@ async function main() {
   let blocked = 0;
   for (const addr of clones) {
     const [v, why] = await assess(addr);
-    if (VERDICT[v] === 'BLOCK') blocked++;
-    console.log(`  ${addr}  ${VERDICT[v]}  (${why})`);
+    if (verdictName(v) === 'BLOCK') blocked++;
+    console.log(`  ${addr}  ${verdictName(v)}  (${why})`);
   }
 
   const note = res.changed

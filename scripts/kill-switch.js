@@ -30,7 +30,7 @@
 import { parseUnits, formatUnits, ContractFunctionRevertedError } from 'viem';
 import { publicClient, requireWallet, addresses, assertAddress, txUrl } from '../src/config.js';
 import { compileGuard } from '../src/compile.js';
-import { usdcBalanceOf, formatAssessment } from '../src/guard.js';
+import { usdcBalanceOf, formatAssessment, verdictName } from '../src/guard.js';
 import { guardReasonCode, guardErrorCode } from '../src/refusals.js';
 
 // the payment used to show the difference. small on purpose: this beat never
@@ -51,7 +51,7 @@ function beat(label, title) {
 // its refusal code, and the contract's own words.
 function assessment(verdict, reason) {
   return formatAssessment({
-    verdict: ['PAY', 'BLOCK', 'REVIEW'][Number(verdict)] ?? String(verdict),
+    verdict: verdictName(verdict),
     reason,
     code: guardReasonCode(reason),
   });

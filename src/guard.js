@@ -8,7 +8,16 @@ import { publicClient, requireWallet, addresses, assertAddress, txUrl, account }
 import { compileGuard } from './compile.js';
 import { guardReasonCode } from './refusals.js';
 
-const VERDICT = ['PAY', 'BLOCK', 'REVIEW']; // matches enum Verdict order
+// matches `enum Verdict { Pay, Block, Review }` in AegisGuard.sol. that contract
+// is deployed and verified, so this order can never be fixed by editing the
+// contract to match - it has to match the contract. exported because the demo
+// scripts print on-chain verdicts too, and three private copies of an ordering
+// nobody can change is three chances to get it wrong once.
+const VERDICT = ['PAY', 'BLOCK', 'REVIEW'];
+
+export function verdictName(verdict) {
+  return VERDICT[Number(verdict)] ?? String(verdict);
+}
 
 let _abi = null;
 function guardAbi() {
@@ -36,7 +45,7 @@ export async function assessOnChain(to, amount) {
   // the only way "two rails, one policy engine" is checkable rather than a
   // slogan. anything the map doesn't recognize comes back UNKNOWN, never a
   // near-match. see src/refusals.js.
-  return { verdict: VERDICT[verdict] ?? String(verdict), reason, code: guardReasonCode(reason) };
+  return { verdict: verdictName(verdict), reason, code: guardReasonCode(reason) };
 }
 
 // one way to print an on-chain verdict, so the several places that print one all

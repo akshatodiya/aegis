@@ -90,6 +90,29 @@ test('refuses when no option is on our chain / in our USDC', async () => {
     (e) => e instanceof AegisPaymentRefused && /no acceptable payment/.test(e.reason));
 });
 
+test('a 402 we cannot pay still says what it was selling', async () => {
+  // this refusal fires before an option is chosen, so unlike every other one it
+  // has no recipient and no amount to report. that is precisely why the
+  // description earns its place here: it is the only thing left that says what
+  // the agent was turned away from.
+  const foreign = option({ network: 'eip155:1', asset: '0x000000000000000000000000000000000000dEaD' });
+  const { aegisFetch } = build({
+    responses: [resp402Doc({
+      x402Version: 2,
+      resource: { url: 'https://api.test/premium', description: 'Premium market data' },
+      accepts: [foreign],
+    })],
+  });
+
+  const err = await aegisFetch('https://api.test/data').then(() => null, (e) => e);
+  assert.ok(err instanceof AegisPaymentRefused);
+  assert.equal(err.code, 'NO_PAYABLE_OPTION');
+  assert.equal(err.resource.description, 'Premium market data');
+  assert.equal(err.resource.url, 'https://api.test/premium');
+  // and it is still decoration only: the reason a receipt would record is ours.
+  assert.ok(!err.reason.includes('Premium market data'));
+});
+
 test('a BLOCK verdict on payTo stops the payment at the signer', async () => {
   const { aegisFetch, fetchImpl } = build({ decision: 'BLOCK', responses: [resp402Body([option()])] });
   await assert.rejects(() => aegisFetch('https://api.test/data'),

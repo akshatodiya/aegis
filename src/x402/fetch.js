@@ -271,9 +271,15 @@ export function createAegisX402Fetch(opts = {}) {
     const { options, version, resource: offered } = await parseRequirements(res);
     const option = selectOption(options, { chainId, usdc });
     if (!option) {
+      // no recipient and no amount to report - nothing in `accepts` was payable,
+      // so there is no `about` yet. the document still said what it was selling,
+      // though, and that is the one refusal where a reader most wants it: "we
+      // could not pay for this" reads very differently when you can see what
+      // "this" was. it is the same cleaned, quoted, never-compared string as
+      // everywhere else.
       throw new AegisPaymentRefused(
         `no acceptable payment option (need exact scheme on chain ${chainId} in USDC ${usdc}).`,
-        DECISION.BLOCK, { code: REFUSAL.NO_PAYABLE_OPTION },
+        DECISION.BLOCK, { resource: offered, code: REFUSAL.NO_PAYABLE_OPTION },
       );
     }
 

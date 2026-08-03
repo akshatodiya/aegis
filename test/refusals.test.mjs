@@ -40,18 +40,52 @@ test('the vocabulary is a frozen set of keys that equal their values', () => {
   assert.ok(!isRefusalCode(null));
 });
 
+// Count the places a code is actually USED, which is not the same as the places
+// its name appears. The declaration in refusals.js reads `DENYLISTED:
+// 'DENYLISTED'`, so a code that nothing anywhere raises still has its name in
+// the source twice. Counting raw occurrences and asking for two therefore asks
+// for nothing at all, which is how the first version of this test passed every
+// code it was ever given.
+//
+// So refusals.js is counted differently from everything else. Inside it, only
+// `REFUSAL.X` counts: that is a reference to the code, whereas `X: 'X'` is the
+// definition being tested. Outside it, any whole-word occurrence counts. Six
+// codes are legitimately raised only inside refusals.js, in the maps that
+// translate AegisGuard's on-chain strings and custom errors, and this is what
+// tells them apart from a dead word.
+function usesOf(code, files) {
+  const declaration = join(ROOT, 'src', 'refusals.js');
+  return files.reduce((total, file) => {
+    const source = readFileSync(file, 'utf8');
+    const pattern = file === declaration
+      ? new RegExp(`REFUSAL\\.${code}\\b`, 'g')
+      : new RegExp(`\\b${code}\\b`, 'g');
+    return total + (source.match(pattern) ?? []).length;
+  }, 0);
+}
+
 test('every code is actually raised somewhere', () => {
   // a vocabulary that accumulates dead words is worse than no vocabulary: it
   // makes the list look like it describes the system when it describes history.
-  // each code is defined once in refusals.js, so anything appearing only once
-  // across the whole source tree is defined and never used.
   const files = [...sourceFiles(join(ROOT, 'src')), ...sourceFiles(join(ROOT, 'scripts'))];
-  const source = files.map((f) => readFileSync(f, 'utf8')).join('\n');
 
   for (const code of REFUSAL_CODES) {
-    const uses = source.match(new RegExp(`\\b${code}\\b`, 'g')) ?? [];
-    assert.ok(uses.length >= 2, `${code} is defined but never raised (${uses.length} occurrence)`);
+    assert.ok(usesOf(code, files) >= 1, `${code} is defined but never raised`);
   }
+});
+
+test('the dead-code check can actually fail', () => {
+  // the point of the test above is that it goes red when a code stops being
+  // used, and a test that cannot go red is worse than no test - it reads like a
+  // guarantee. so hand the counter a name that is declared nowhere and raised
+  // nowhere, and require it to come back empty. if this ever counts to one, the
+  // check above has stopped checking.
+  const files = [...sourceFiles(join(ROOT, 'src')), ...sourceFiles(join(ROOT, 'scripts'))];
+  assert.equal(usesOf('NEVER_RAISED_ANYWHERE', files), 0);
+  // and the same for a name that IS declared: strip the declaration's own two
+  // occurrences and a code used nowhere else counts zero, which is the exact
+  // case the old `>= 2` could not see.
+  assert.ok(REFUSAL_CODES.every((code) => usesOf(code, files) >= 1));
 });
 
 test('the guard reason map matches what the contract actually says', () => {

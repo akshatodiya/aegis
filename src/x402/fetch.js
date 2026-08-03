@@ -49,8 +49,15 @@ const LIMITS = { url: 200, description: 160, mimeType: 64 };
 //     return can overwrite the line above it, which is enough to forge the
 //     prompt itself. they become spaces rather than vanishing, so "a<ESC>b"
 //     can't quietly close up into a word nobody sent.
-//   - the bidi overrides and zero-width characters go. they reorder what a
-//     reader sees without changing what a program compares.
+//   - the format characters go, matched by Unicode property rather than by a
+//     list. the list this started as covered the ones everybody knows and
+//     missed U+061C, which is a bidi control like the others, and the whole
+//     U+E0000 tag block, which is invisible in every terminal and is what
+//     ascii-smuggling payloads are written in. an enumeration of hostile
+//     characters is a promise to keep up with Unicode, and \p{Cf} is the same
+//     promise kept by the runtime instead. the blank characters that are
+//     letters rather than format (the hangul fillers) are named separately,
+//     because there is no property that means "renders as nothing".
 //   - whitespace collapses, so the seller gets one line and cannot lay out
 //     something that looks like our own output underneath it.
 //   - and it's capped, because the party asking for money doesn't get to decide
@@ -61,8 +68,8 @@ const LIMITS = { url: 200, description: 160, mimeType: 64 };
 function cleanText(value, limit) {
   if (typeof value !== 'string') return null;
   const flat = value
-    .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
-    .replace(/[\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/g, '')
+    .replace(/\p{Cc}/gu, ' ')
+    .replace(/[\p{Cf}\p{Zl}\p{Zp}\u034f\u115f\u1160\u3164\uffa0]/gu, '')
     .replace(/\s+/g, ' ')
     .trim();
   if (!flat) return null;

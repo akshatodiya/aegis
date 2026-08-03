@@ -93,6 +93,20 @@ async function main() {
     return { hash, url: txUrl(hash), status: receipt.status };
   };
 
+  // Putting the agent back is the half of this script nobody watches: by the
+  // time it runs the demo has said what it came to say, and the operator is
+  // reading the beats above rather than the last line. So it is confirmed the
+  // same way the revoke is, and for a better reason - the receipt has to say
+  // success AND the chain has to agree the agent is authorized again. A
+  // transaction that is accepted and then reverts would otherwise print
+  // "restored" over an agent that is still shut off, and the run ends, the
+  // shell closes, and nothing pays again until somebody works out why.
+  const restore = async () => {
+    const tx = await write('setAgent', [agent, true]);
+    const isAgent = await read('isAgent', [agent]);
+    return { ...tx, isAgent, ok: tx.status === 'success' && isAgent === true };
+  };
+
   const [owner, authorized, limit] = await Promise.all([
     read('owner'),
     read('isAgent', [agent]),
@@ -115,9 +129,16 @@ async function main() {
       return;
     }
     console.log(`\nre-authorizing ${agent} ...`);
-    const tx = await write('setAgent', [agent, true]);
+    const tx = await restore();
     console.log(`  setAgent(${agent}, true)  ${tx.url}`);
-    console.log(`  isAgent: ${await read('isAgent', [agent])}\n`);
+    console.log(`  isAgent: ${tx.isAgent}`);
+    if (!tx.ok) {
+      // this command exists to be run during an incident, so it exits non-zero
+      // rather than leaving a shell script upstream of it thinking it worked.
+      console.log(`\n  !! ${agent} is STILL revoked (receipt: ${tx.status}). it cannot pay.\n`);
+      process.exit(1);
+    }
+    console.log('');
     return;
   }
 
@@ -276,10 +297,17 @@ async function main() {
     if (shutOff && !stay) {
       console.log('\n----------------------------------------------');
       try {
-        const back = await write('setAgent', [agent, true]);
-        console.log(`  restored: setAgent(${agent}, true)  ${back.url}`);
-        console.log(`  isAgent: ${await read('isAgent', [agent])}  - the demo left the guard as it found it.`);
-        console.log('  (run with --stay to revoke for real and leave it revoked.)');
+        const back = await restore();
+        if (back.ok) {
+          console.log(`  restored: setAgent(${agent}, true)  ${back.url}`);
+          console.log(`  isAgent: ${back.isAgent}  - the demo left the guard as it found it.`);
+          console.log('  (run with --stay to revoke for real and leave it revoked.)');
+        } else {
+          console.log(`  !! THE RESTORE DID NOT TAKE: receipt ${back.status}, isAgent ${back.isAgent}`);
+          console.log(`  !! ${back.url}`);
+          console.log(`  !! ${agent} is still revoked. put it back with:`);
+          console.log('  !!   npm run kill-switch -- --restore');
+        }
       } catch (err) {
         console.log(`  !! COULD NOT RESTORE THE AGENT: ${err.shortMessage || err.message}`);
         console.log(`  !! ${agent} is still revoked. put it back with:`);

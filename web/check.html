@@ -812,7 +812,12 @@
 
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const short = (a) => `${a.slice(0, 6)}...${a.slice(-4)}`;
-  const explorerLink = (a) => `<a class="mono" href="${A.EXPLORER}/address/${a}">${esc(a)}</a>`;
+  // escaped in the href as well as in the text. nothing reaches here that isn't
+  // either a constant or already through parseAddress, so this is not closing a
+  // hole - it is refusing to depend on a check that lives in another function
+  // for whether this line is safe. the day someone links something looser, the
+  // attribute is the half that would have been quietly injectable.
+  const explorerLink = (a) => `<a class="mono" href="${esc(A.EXPLORER)}/address/${esc(a)}">${esc(a)}</a>`;
 
   // the examples are all live on Arc and all already named in the README, so
   // there is nothing here a judge has to take on trust either.

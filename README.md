@@ -189,9 +189,10 @@ number.
 The description is written by the party asking to be paid, which makes it the one
 string here with an obvious incentive behind it, so it arrives defanged. Control
 bytes become spaces (an ANSI escape can repaint a terminal, a carriage return can
-overwrite the line above it), the bidi and zero-width characters are dropped,
-whitespace collapses so the seller only ever gets one line, and the length is
-capped. It is quoted, attributed, and read by no check. It also never reaches a
+overwrite the line above it), every Unicode format character is dropped - by
+property rather than by a list, because the list this started as missed U+061C and
+the tag block that ascii-smuggling payloads are written in - whitespace collapses
+so the seller only ever gets one line, and the length is capped. It is quoted, attributed, and read by no check. It also never reaches a
 refusal `reason`, because reasons are what `AegisAuditLog` writes on-chain and a
 merchant does not get to choose the wording of our receipts.
 
@@ -606,7 +607,7 @@ drop-in that quietly loses its teeth.
 npm test
 ```
 
-176 cases, no fork / no testnet / no keys. 147 of them need no node at all; only the
+180 cases, no fork / no testnet / no keys. 151 of them need no node at all; only the
 two contract suites (19 for the guard, 10 for the audit log) need `anvil`, and they look in `~/.foundry/bin` as well as on
 your PATH, because `foundryup` only wires that directory into interactive shell profiles, so
 a CI runner or a plain `sh -c` can have foundry installed and still not see it. The guard suite spins up a local `anvil`
@@ -626,7 +627,10 @@ seller writes into that human prompt, from both the places the spec puts it: tha
 it arrives, that an approval prompt that throws is a refusal rather than a crash,
 and that a description made of escape sequences and bidi overrides cannot repaint
 the terminal it is printed in, forge a second line, or turn up in the reason
-string that the audit log writes on-chain. The bytecode suite needs no node
+string that the audit log writes on-chain. One of those tests carries an entire
+sentence written in invisible tag characters and requires it to be gone, and
+another walks all twelve of Unicode's bidi controls rather than the eleven anybody
+lists from memory. The bytecode suite needs no node
 at all: it pins the metadata trim against a recipient that fakes its own trailer to
 hide reachable code from the scan, and checks genuine solc metadata still gets cut
 at exactly the right boundary. The behavior suite covers both halves of that lane -

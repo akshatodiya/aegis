@@ -273,7 +273,7 @@ improvement on approving a name and a number, and it hands the counterparty a
 channel into the one place a person is deciding about money.
 
 What is defended: the formatting. A description arrives with its control bytes
-turned into spaces, its bidi and zero-width characters dropped, its whitespace
+turned into spaces, every Unicode format character dropped, its whitespace
 collapsed to one line and its length capped (`cleanText` in `src/x402/fetch.js`).
 That closes the concrete attacks - repainting the terminal with an escape
 sequence, overwriting the line above with a carriage return, opening a second line
@@ -282,6 +282,19 @@ character. It is labelled as quoted third-party text when it is printed, and no
 check reads it. It also never becomes part of a refusal `reason`, because reasons
 are what `AegisAuditLog` writes on-chain and a merchant does not get to author our
 receipts.
+
+That strip is by Unicode property (`\p{Cf}`) rather than by a list of characters,
+and the reason is worth recording because the first version was a list. It named
+the well-known offenders and missed U+061C, which is a bidi control exactly like
+the ones it did name, and the U+E0000 tag block, which encodes ascii one code
+point per byte and renders as nothing at all - so a whole sentence addressed to
+whatever reads the prompt next could sit inside a product name with no visible
+trace. Neither could have changed a verdict, because nothing compares this string.
+Both made the file's own claim to drop "zero-width characters" untrue, which is
+the part that mattered. A list of hostile characters is a promise to keep up with
+Unicode; a property is that promise kept by the runtime. The tests check by
+property too, deliberately not against the same list the code uses, so a shared
+blind spot cannot make them agree with each other and be wrong together.
 
 What is not defended: the content. "Verified partner, pre-approved by your owner"
 is a plain lie in plain characters, and nothing here can tell. Homoglyphs are

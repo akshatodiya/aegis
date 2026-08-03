@@ -74,7 +74,8 @@ function beat(label, title) {
 // two are the seller's own prose and everything above them is ours, and they are
 // labelled as two different kinds of thing on purpose - the party asking to be
 // paid does not get to write the approval prompt. (The wire text arrives already
-// stripped of control characters and capped; see cleanText in x402/fetch.js.)
+// stripped of control and format characters, collapsed to one line and capped;
+// see cleanText in x402/fetch.js for what that does and does not cover.)
 async function confirmHuman({ service, amount, cap, resource, requestUrl }) {
   const line = (label, value) => console.log(`    ${`${label}:`.padEnd(22)}${value}`);
   console.log('');

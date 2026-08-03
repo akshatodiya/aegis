@@ -44,12 +44,41 @@ const CRAFTED = hex([
   0x00, 0x0d,
 ]);
 
+// the same trick again, by someone who read the fix a second time. the jump
+// target is never pushed as one constant - it is 7 + 3, added at runtime out of
+// two compile-time constants, and 10 is a JUMPDEST inside the blob with a
+// SELFDESTRUCT behind it. neither 7 nor 3 is inside the blob, so looking at
+// individual pushes finds nothing to object to.
+const COMPUTED = hex([
+  0x60, 0x07, 0x60, 0x03, 0x01, 0x56,
+  0xa2, 0x61, 0x61, 0x43, 0x5b, 0xff, 0x00, 0x61, 0x62, 0x43, 0x00, 0x00, 0x00,
+  0x00, 0x0d,
+]);
+
+// and the honest contract that the fix must NOT punish: its body jumps
+// somewhere unreadable (JUMPDEST then JUMP, target from the stack), and its
+// blob does contain a real JUMPDEST - but there is nothing dangerous in there,
+// so the trim still happens and the verdict does not move.
+const INNOCENT = hex([
+  0x5b, 0x56, 0x00, 0x00,
+  0xa2, 0x61, 0x61, 0x43, 0x5b, 0x00, 0x00, 0x61, 0x62, 0x43, 0x00, 0x00, 0x00,
+  0x00, 0x0d,
+]);
+
 const ADDR = {
   honest: '0x00000000000000000000000000000000000000a0',
   naive: '0x00000000000000000000000000000000000000b0',
   crafted: '0x00000000000000000000000000000000000000c0',
+  computed: '0x00000000000000000000000000000000000000d0',
+  innocent: '0x00000000000000000000000000000000000000e0',
 };
-const CODE = { [ADDR.honest]: HONEST, [ADDR.naive]: NAIVE, [ADDR.crafted]: CRAFTED };
+const CODE = {
+  [ADDR.honest]: HONEST,
+  [ADDR.naive]: NAIVE,
+  [ADDR.crafted]: CRAFTED,
+  [ADDR.computed]: COMPUTED,
+  [ADDR.innocent]: INNOCENT,
+};
 
 // a stub eth_getCode, so the lane's real network path runs with no anvil
 const server = createServer((req, res) => {
@@ -142,6 +171,31 @@ test('a blob length pointing outside the code is ignored', () => {
   assert.equal(hidden, false);
 });
 
+test('a jump target added together from two constants does not get past the trim', () => {
+  // this is the case the file used to disclose as a "runtime" limitation. it is
+  // not runtime anything: PUSH1 7, PUSH1 3, ADD, JUMP lands on 10 and every
+  // value involved is known at compile time. the old check looked at each push
+  // on its own, saw 7 and saw 3, found neither inside the blob, and trimmed the
+  // SELFDESTRUCT away unscanned.
+  const { body, hidden } = stripMetadata(COMPUTED);
+  assert.equal(body, COMPUTED, 'the blob has to stay in the body to be scanned');
+  // deliberately not `hidden`: we did not catch it naming the blob, we failed to
+  // prove it could not reach it. those are different claims and only one is true.
+  assert.equal(hidden, false);
+});
+
+test('an honest blob with a JUMPDEST in it and nothing to hide is still trimmed', () => {
+  // the fix costs something every time it declines to trim, because the metadata
+  // then gets walked as opcodes - which is the false alarm the trim exists to
+  // prevent. so it is only spent when there is something in there to find. this
+  // body jumps somewhere unreadable and this blob has a real JUMPDEST, and it is
+  // still trimmed, because scanning it turns up nothing the body did not have.
+  const { body, hidden } = stripMetadata(INNOCENT);
+  assert.equal(hidden, false);
+  assert.ok(body.length < INNOCENT.length, 'a clean blob is still metadata');
+  assert.equal(body, '0x5b56' + '0000');
+});
+
 // --- end to end, through the real checkBytecode against the stub ---
 
 test('a hidden SELFDESTRUCT behind a faked trailer still scores HIGH', async () => {
@@ -162,6 +216,20 @@ test('an honest contract is not dragged up by its own metadata bytes', async () 
   assert.equal(r.level, 'LOW');
   assert.equal(r.score, 0);
   assert.equal(r.isContract, true);
+});
+
+test('end to end: the computed-jump contract is scored on what it was hiding', async () => {
+  const r = await checkBytecode(ADDR.computed);
+  assert.ok(r.hits.SELFDESTRUCT, 'the selfdestruct in the blob has to be found');
+  assert.equal(r.level, 'HIGH');
+  assert.ok(r.score >= 60);
+});
+
+test('end to end: the innocent contract is unaffected by the stricter trim', async () => {
+  const r = await checkBytecode(ADDR.innocent);
+  assert.equal(r.score, 0);
+  assert.equal(r.level, 'LOW');
+  assert.deepEqual(r.hits, {});
 });
 
 test.after(() => server.close());

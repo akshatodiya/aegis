@@ -16,6 +16,7 @@ import { foundry } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
 import { compileContract } from '../src/compile.js';
 import { waitForSuccess } from '../src/config.js';
+import { isDelegatedEoa } from '../src/guard.js';
 import { REFUSAL, guardReasonCode } from '../src/refusals.js';
 
 const RPC = 'http://127.0.0.1:8545';
@@ -206,6 +207,43 @@ test('a write that really landed comes back as a receipt', async () => {
   });
   const receipt = await waitForSuccess(hash, 'setDenylisted', pub);
   assert.equal(receipt.status, 'success');
+});
+
+// ---- EIP-7702, where the contract and the helper disagree on purpose ----
+
+test('a 7702 delegated EOA reads as an unvetted contract, and is not offered the allowlist', async () => {
+  // 7702 sets an EOA's code to 0xef0100 followed by the delegate's address, so
+  // `to.code.length > 0` is true and assess asks for vetting. That is the
+  // conservative call and the right one.
+  //
+  // needsVetting in guard.js deliberately does NOT follow the contract here: it
+  // declines to offer the allowlist for this one case. allowedContract is keyed
+  // on the ADDRESS, and the code behind a 7702 address is whatever its owner
+  // last delegated to - they can re-delegate immediately after being vetted. so
+  // allowlisting one is not vetting a contract, it is granting standing trust to
+  // a slot the counterparty can refill.
+  //
+  // this pins both halves, so the divergence stays a decision rather than
+  // becoming a bug somebody 'fixes' later.
+  const delegate = '0x00000000000000000000000000000000deadbeef';
+  const code = `0xef0100${delegate.slice(2)}`;
+  await pub.request({ method: 'anvil_setCode', params: [bob, code] });
+
+  const onChain = await pub.getCode({ address: bob });
+  assert.ok(isDelegatedEoa(onChain), 'sanity: anvil really set a 7702 delegation');
+
+  const verdict = await assess(bob, 10);
+  assert.equal(verdict.verdict, V.REVIEW);
+  assert.equal(verdict.reason, 'unvetted contract recipient');
+
+  // and blocking it by codehash pins one delegation only, which is the same
+  // limitation seen from the other side: re-delegating changes the codehash.
+  const before = await pub.getCode({ address: bob });
+  await pub.request({ method: 'anvil_setCode', params: [bob, `0xef0100${'11'.repeat(20)}`] });
+  const after = await pub.getCode({ address: bob });
+  assert.notEqual(before, after, 're-delegating changes the code, so it changes the codehash');
+
+  await pub.request({ method: 'anvil_setCode', params: [bob, '0x'] });
 });
 
 // ---- the kill switch ----

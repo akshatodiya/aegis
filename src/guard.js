@@ -344,16 +344,33 @@ export async function recordVerdictOnChain(to) {
   }
 }
 
-// true when `to` is a contract the guard hasn't been told to trust yet - which is
-// exactly the on-chain condition behind a REVIEW of "unvetted contract recipient".
-// we recompute it from state (has code, not allowlisted) rather than string-match
-// the revert reason, so the two don't drift apart. an EIP-7702 EOA (0xef0100...)
-// carries code but isn't a contract we'd allowlist, so it's excluded.
+// an EIP-7702 delegated EOA: 23 bytes of 0xef0100 followed by the delegate's
+// address. it carries code, so the guard treats it as a contract recipient.
+export function isDelegatedEoa(code) {
+  return (code || '0x').toLowerCase().startsWith('0xef0100');
+}
+
+// true when `to` is a recipient the guard hasn't been told to trust yet AND one
+// we are willing to offer to allowlist - which is not quite the same set as the
+// on-chain condition behind a REVIEW of "unvetted contract recipient".
+//
+// It is recomputed from state (has code, not allowlisted) rather than by
+// string-matching a revert reason, so it cannot drift from the contract by
+// accident. It diverges in exactly one place, on purpose: an EIP-7702 delegated
+// EOA. The contract sees code and asks for vetting, which is right. We still
+// decline to offer the allowlist, because `allowedContract` is keyed on the
+// ADDRESS and the code behind a 7702 address is whatever its owner last
+// delegated to - and they can delegate somewhere else immediately afterwards.
+// Allowlisting one is not vetting a contract, it is granting permanent trust to
+// a slot the counterparty can refill. So the payment stays refused, and
+// agent.js says why rather than leaving an operator with a REVIEW and no
+// remedy. (Blocking by codehash has the same limit in the other direction: it
+// pins one delegation, and re-delegating escapes it.)
 export async function needsVetting(to) {
   const guard = guardAddress();
   const code = await publicClient.getCode({ address: to });
   const lower = (code || '0x').toLowerCase();
-  if (lower === '0x' || lower.startsWith('0xef0100')) return false;
+  if (lower === '0x' || isDelegatedEoa(lower)) return false;
 
   const allowed = await publicClient.readContract({
     address: guard, abi: guardAbi(), functionName: 'allowedContract', args: [to],

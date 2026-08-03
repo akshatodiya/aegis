@@ -17,8 +17,8 @@ import { aegisCheck, printVerdict, DECISION } from './aegis.js';
 import { payUSDC } from './pay.js';
 import { approveUSDC } from './approve.js';
 import { createInterface } from 'node:readline/promises';
-import { guardedPay, assessOnChain, recordVerdictOnChain, allowlistOnChain, needsVetting, formatAssessment } from './guard.js';
-import { addresses, assertAddress } from './config.js';
+import { guardedPay, assessOnChain, recordVerdictOnChain, allowlistOnChain, needsVetting, formatAssessment, isDelegatedEoa } from './guard.js';
+import { addresses, assertAddress, publicClient } from './config.js';
 
 const DEFAULT_AMOUNT = 10;
 const MODES = new Set(['approve', 'guard']);
@@ -111,7 +111,22 @@ async function runGuard(recipient, amount, result) {
     } else {
       // on-chain is stricter for some other reason (over the daily limit,
       // denylisted, ...). don't fire a transaction we know would just revert.
-      console.log(`\nOn-chain guard says ${formatAssessment(before)}, not sending.\n`);
+      console.log(`\nOn-chain guard says ${formatAssessment(before)}, not sending.`);
+      // one of those reasons deserves more than a verdict, because it is the
+      // case where the obvious next step is the wrong one. a 7702 EOA reads as
+      // an unvetted contract to the guard, and allowlisting it would look like
+      // the fix.
+      if (isDelegatedEoa(await publicClient.getCode({ address: recipient }))) {
+        console.log('\n  That address is an EIP-7702 delegated EOA: it carries code, so the guard');
+        console.log('  reads it as an unvetted contract, which is the conservative call and the');
+        console.log('  right one. Aegis will not offer to allowlist it, and that is deliberate -');
+        console.log('  the allowlist is keyed on the address, while the code behind a 7702 address');
+        console.log('  is whatever its owner last delegated to and can be changed straight after.');
+        console.log('  Allowlisting it would grant standing trust to a slot they can refill.');
+        console.log('  If you want to pay it anyway, send it directly rather than through the');
+        console.log('  guard, and treat it as an EOA payment - which is what it is.');
+      }
+      console.log('');
     }
     return;
   }

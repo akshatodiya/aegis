@@ -15,6 +15,7 @@ import {
 import { foundry } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
 import { compileContract } from '../src/compile.js';
+import { waitForSuccess } from '../src/config.js';
 import { REFUSAL, guardReasonCode } from '../src/refusals.js';
 
 const RPC = 'http://127.0.0.1:8545';
@@ -170,6 +171,41 @@ test('guardedPay: a non-agent caller is rejected', async () => {
     () => pub.simulateContract({ address: guard, abi: GUARD.abi, functionName: 'guardedPay', args: [bob, usd(10)], account: outsider }),
     'NotAgent',
   );
+});
+
+// ---- confirming a write, rather than merely waiting for one ----
+
+test('a mined-but-reverted write is not reported as a success', async () => {
+  // waitForTransactionReceipt resolves for a reverted transaction exactly as
+  // happily as for a successful one, because status is a field on the receipt
+  // and not an error. every write in this project used to rely on that call
+  // alone and then print a link and a success message underneath it.
+  //
+  // to get a reverted transaction actually mined rather than rejected up front,
+  // the gas has to be set by hand - otherwise the node estimates first, sees the
+  // revert, and refuses to broadcast at all.
+  await send(guard, GUARD.abi, 'setAgent', [owner.address, false]);
+  const hash = await asOwner.writeContract({
+    address: guard, abi: GUARD.abi, functionName: 'guardedPay',
+    args: [bob, usd(10)], account: owner, gas: 200_000n,
+  });
+
+  const receipt = await pub.waitForTransactionReceipt({ hash });
+  assert.equal(receipt.status, 'reverted', 'sanity: this transaction really did revert');
+
+  await assert.rejects(
+    () => waitForSuccess(hash, 'setAgent', pub),
+    (err) => /was mined but reverted/.test(err.message),
+    'a reverted write has to be an error, not a receipt',
+  );
+});
+
+test('a write that really landed comes back as a receipt', async () => {
+  const hash = await asOwner.writeContract({
+    address: guard, abi: GUARD.abi, functionName: 'setDenylisted', args: [bob, true], account: owner,
+  });
+  const receipt = await waitForSuccess(hash, 'setDenylisted', pub);
+  assert.equal(receipt.status, 'success');
 });
 
 // ---- the kill switch ----

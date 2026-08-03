@@ -131,6 +131,28 @@ export const usdcDomain = {
   version: process.env.USDC_DOMAIN_VERSION || '2',
 };
 
+// Wait for a write and refuse to call a reverted transaction a success.
+//
+// waitForTransactionReceipt resolves for a transaction that was mined and
+// reverted just as happily as for one that worked - status is a field on the
+// receipt, not an error. So `await waitForTransactionReceipt(...)` on its own
+// reads like a confirmation and is not one, and every place that did it went on
+// to print a link and a success message for a write that may not have happened.
+//
+// This matters most where writes come in ordered sets: rotate-keys authorises a
+// new agent before revoking the old one precisely so there is never a moment
+// with nobody able to pay, and that ordering only means anything if step one
+// failing stops step two. Throwing here is what makes it stop.
+// `client` is injectable so the tests can point this at their own anvil rather
+// than at whatever chain the env happens to name.
+export async function waitForSuccess(hash, what = 'the transaction', client = publicClient) {
+  const receipt = await client.waitForTransactionReceipt({ hash });
+  if (receipt.status !== 'success') {
+    throw new Error(`${what} was mined but reverted: ${txUrl(hash)}`);
+  }
+  return receipt;
+}
+
 export function assertAddress(label, value) {
   if (!value || !isAddress(value)) {
     throw new Error(`${label} is not a valid address: ${value ?? '(empty)'} - check your .env`);

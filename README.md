@@ -486,6 +486,14 @@ and rotate the wallet, and the float on hand is the loss ceiling until you do. I
 claws nothing back. It does not stop the agent burning its own gas balance. And
 it is exactly as good as the owner key, which can also un-revoke.
 
+The restore at the end is confirmed rather than assumed: the receipt has to say
+success *and* the chain has to agree `isAgent` is true again, and `--restore`
+exits non-zero when it did not take. That is the one failure in this script worth
+being careful about, because it is the half nobody watches - by then the demo has
+said what it came to say - and printing "restored" over an agent that is still
+shut off ends the run, closes the shell, and stops the treasury rail until
+somebody works out why.
+
 One trap worth naming, because it reads the other way round: **`setDailyLimit(0)`
 does not freeze spending, it turns the cap off.** `assess` treats zero as "no cap
 configured", so an owner reaching for it mid-incident would remove the only rate
@@ -560,6 +568,19 @@ having rather than a second thing to keep in sync:
 - **Unknown stays unknown.** Nothing guesses at the nearest code. An on-chain
   reason this vocabulary has never seen comes back `UNKNOWN`, which is a thing
   you can go and look at.
+- **The list cannot fill up with dead words.** A test fails if any code stops
+  being raised anywhere in `src/` or `scripts/`, so the vocabulary keeps
+  describing the system instead of its history. That test is itself checked
+  against a code raised nowhere, because the first version of it counted every
+  mention of a name including its own definition, which meant a dead code scored
+  two, the threshold was two, and it could never have gone red.
+
+A refusal also carries **what was on offer**. Where one happened after a 402 was
+read, `err.resource` holds the seller's own `{ url, description, mimeType }`,
+cleaned by the same pass that cleans the approval prompt and compared against
+nothing, so a handler writing a refusal into a log can say what the agent was
+turned away from and not only who from. It is `null` when the refusal happened
+before any of that was known.
 
 In `AegisAuditLog` the code rides at the front of the stored reason, because the
 contract has one string field and is already deployed. The front is deliberate:

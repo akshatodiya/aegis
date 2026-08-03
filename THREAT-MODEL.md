@@ -406,6 +406,44 @@ had been demonstrated, not the class it belonged to, and a narrow check that
 happens to cover the proof of concept reads exactly like a correct one until
 somebody widens the opcode.
 
+And then it happened a third time, which is the part that finally changed the
+shape of the check rather than its width. Reading every push width still only
+answered "does some single literal constant name a byte in the blob". It does not
+have to be a single constant:
+
+```
+PUSH1 0x0a ; JUMP                       -> flagged, blob kept, SELFDESTRUCT scored
+PUSH1 7 ; PUSH1 3 ; ADD ; JUMP          -> not flagged, blob trimmed, LOW/0
+```
+
+Both jump to 10. Neither 7 nor 3 is inside the blob, so inspecting pushes one at
+a time finds nothing to object to, and a JUMPDEST/SELFDESTRUCT pair sitting in
+the "ipfs hash" was trimmed away unscanned. This was disclosed in the source as a
+known limit, described as a target "computed at runtime" - but there is nothing
+runtime about it. Both operands are compile-time constants. The disclosure made a
+one-instruction bypass sound like an exotic edge case, and a limitation described
+more narrowly than it is does the same work as an undisclosed one.
+
+The check is inverted now. It no longer looks for a way in and trims when it
+fails to find one; it trims only when there is provably no way in - either
+nothing in the blob is a valid JUMPDEST, or every jump in the body is preceded by
+a literal push and none of those constants is in the blob. A jump whose target
+comes from arithmetic or off the stack is unreadable to a linear scan, and
+unreadable now means "cannot be shown safe" rather than "assumed safe".
+
+That costs something, so it is spent narrowly: when the blob cannot be proven
+unreachable, we only decline to trim if walking it actually turns up a danger
+opcode the trimmed body did not have. A clean blob is still metadata. Recompiling
+this repo's own contracts 3000 times each with randomised metadata hashes puts
+the cost at **1.6% of honest builds**, which are read as flagged code they are
+not. That is a false alarm, and false alarms are the direction this lane has
+always said it would fail in.
+
+Three rounds of the same bug is itself the finding. Each fix was correct about
+the example in front of it and wrong about the class, and the thing that finally
+worked was not a better list of what an attacker might do - it was giving up on
+enumerating them and requiring proof of the property we actually wanted.
+
 ### The behavior lane could be bought for a dollar
 
 Same shape, different lane, and this one was in code written to *fix* a lane that

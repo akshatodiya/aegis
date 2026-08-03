@@ -628,8 +628,8 @@ drop-in that quietly loses its teeth.
 npm test
 ```
 
-180 cases, no fork / no testnet / no keys. 151 of them need no node at all; only the
-two contract suites (19 for the guard, 10 for the audit log) need `anvil`, and they look in `~/.foundry/bin` as well as on
+187 cases, no fork / no testnet / no keys. 155 of them need no node at all; only the
+two contract suites (22 for the guard, 10 for the audit log) need `anvil`, and they look in `~/.foundry/bin` as well as on
 your PATH, because `foundryup` only wires that directory into interactive shell profiles, so
 a CI runner or a plain `sh -c` can have foundry installed and still not see it. The guard suite spins up a local `anvil`
 node, deploys a mock USDC + the guard + the honeypot, and drives every policy path
@@ -654,7 +654,10 @@ another walks all twelve of Unicode's bidi controls rather than the eleven anybo
 lists from memory. The bytecode suite needs no node
 at all: it pins the metadata trim against a recipient that fakes its own trailer to
 hide reachable code from the scan, and checks genuine solc metadata still gets cut
-at exactly the right boundary. The behavior suite covers both halves of that lane -
+at exactly the right boundary. That includes a recipient whose jump target is
+added together from two constants rather than pushed as one, which is the third
+distinct bypass this one check has had and the one that made it stop enumerating
+attacks and start requiring proof - the story is in `THREAT-MODEL.md`. The behavior suite covers both halves of that lane -
 the pure verdict, including the dust-payment case below, and the `getLogs` read
 itself against a stub JSON-RPC server, so the block window, the recipient topic
 filter and the 6-decimal conversion are pinned rather than only ever exercised in a

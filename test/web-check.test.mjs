@@ -79,6 +79,23 @@ const CORPUS = {
     0xa2, 0x61, 0x61, 0x43, 0x5b, 0xff, 0x00, 0x61, 0x62, 0x43, 0x00, 0x00, 0x00,
     0x00, 0x0d,
   ]),
+  // the same hiding place reached without a single constant naming it: the
+  // target is 7 + 3, added at runtime out of two compile-time constants. this
+  // one is here because the page kept the superseded copy of the check long
+  // after src/lanes/bytecode.js stopped using it, and every fixture above still
+  // agreed, so the parity suite reported a copy that had already drifted.
+  '0x00000000000000000000000000000000000000c1': hex([
+    0x60, 0x07, 0x60, 0x03, 0x01, 0x56,
+    0xa2, 0x61, 0x61, 0x43, 0x5b, 0xff, 0x00, 0x61, 0x62, 0x43, 0x00, 0x00, 0x00,
+    0x00, 0x0d,
+  ]),
+  // and the honest contract the stricter rule must not punish: an unreadable
+  // jump in the body, a real JUMPDEST in the blob, nothing dangerous in it.
+  '0x00000000000000000000000000000000000000c2': hex([
+    0x5b, 0x56, 0x00, 0x00,
+    0xa2, 0x61, 0x61, 0x43, 0x5b, 0x00, 0x00, 0x61, 0x62, 0x43, 0x00, 0x00, 0x00,
+    0x00, 0x0d,
+  ]),
   '0x00000000000000000000000000000000000000d0': craftedWithPush(1),
   '0x00000000000000000000000000000000000000d4': craftedWithPush(4),
   '0x00000000000000000000000000000000000000d5': craftedWithPush(5),
@@ -157,6 +174,18 @@ test('the honeypot shape still scores HIGH through the page copy', () => {
   assert.ok(r.hits.SELFDESTRUCT && r.hits.DELEGATECALL && r.hits.ORIGIN);
   const hidden = A.bytecodeVerdict('0x00000000000000000000000000000000000000c0', CORPUS['0x00000000000000000000000000000000000000c0']);
   assert.ok(hidden.hits.HIDDEN_CODE, 'the executable "metadata" blob must still be caught in the browser copy');
+
+  // stated absolutely rather than by comparison, because the whole point of this
+  // case is that the two copies once agreed on the wrong answer for it.
+  const computed = A.bytecodeVerdict('0x00000000000000000000000000000000000000c1', CORPUS['0x00000000000000000000000000000000000000c1']);
+  assert.equal(computed.level, 'HIGH', 'a jump target built from two constants must not trim the blob away');
+  assert.ok(computed.hits.SELFDESTRUCT, 'the selfdestruct hidden in the blob has to be found in the browser too');
+
+  // and the other side of it: refusing to trim is a cost, so it is only paid
+  // where there is something to find. an honest blob is still trimmed.
+  const innocent = A.bytecodeVerdict('0x00000000000000000000000000000000000000c2', CORPUS['0x00000000000000000000000000000000000000c2']);
+  assert.equal(innocent.level, 'LOW');
+  assert.deepEqual(innocent.hits, {});
 });
 
 test('hexToBytes copies Buffer.from(hex) including where it gives up', () => {

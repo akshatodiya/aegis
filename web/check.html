@@ -444,12 +444,19 @@
     return -1;
   }
 
-  function jumpsInto(b, start) {
-    for (let i = 0; i < start; i++) {
+  // walk the code one instruction at a time, stepping over push immediates, so a
+  // 0x5b sitting inside push data is not mistaken for a landing site. `push` says
+  // the target is a known constant at all; `value` is that constant only when it
+  // is narrow enough to be a code offset.
+  function instructionsOf(b) {
+    const out = [];
+    for (let i = 0; i < b.length; i++) {
       const op = b[i];
-      if (!isPush(op)) continue;
+      if (!isPush(op)) {
+        out.push({ at: i, op, push: false, value: null });
+        continue;
+      }
       const n = pushLen(op);
-
       let high = 0;
       let v = 0;
       for (let k = 1; k <= n; k++) {
@@ -457,11 +464,44 @@
         if (k <= n - 4) high |= byte;
         else v = v * 256 + byte;
       }
-      if (high === 0 && v >= start && v < b.length && b[v] === 0x5b) return true;
-
+      out.push({ at: i, op, push: true, value: high === 0 ? v : null });
       i += n;
     }
-    return false;
+    return out;
+  }
+
+  // can the code before `start` get INTO the trailing blob? this asks for proof
+  // that it cannot, rather than hunting for a way in and trimming when it fails
+  // to find one - because "does one literal push name a byte in the blob" misses
+  // PUSH1 7 ; PUSH1 3 ; ADD ; JUMP, which reaches 10 with no single constant.
+  function trailerReach(b, start) {
+    const instrs = instructionsOf(b);
+    const end = b.length - 2;
+    const dests = new Set(
+      instrs.filter((x) => x.op === 0x5b && x.at >= start && x.at < end).map((x) => x.at),
+    );
+    if (dests.size === 0) return 'unreachable'; // nowhere to land
+
+    let unprovable = false;
+    for (let k = 0; k < instrs.length; k++) {
+      const ins = instrs[k];
+      if (ins.at >= start) break; // only the body's own jumps matter
+      if (ins.value !== null && dests.has(ins.value)) return 'reachable';
+      if (ins.op !== 0x56 && ins.op !== 0x57) continue;
+      // a literal push right before the jump settles it either way. anything
+      // else means the target came from somewhere this walk is not tracking.
+      const prev = instrs[k - 1];
+      if (!prev || !prev.push) unprovable = true;
+    }
+    return unprovable ? 'unprovable' : 'unreachable';
+  }
+
+  // does scanning everything turn up a danger opcode the trimmed body did not
+  // have? this is what keeps an honest hash containing a 0x5b out of trouble.
+  function hidesDanger(full, body) {
+    const inFull = scanOpcodes(full);
+    const inBody = scanOpcodes(body);
+    return Object.keys(inFull).some((k) => (inFull[k]?.count ?? 0) > (inBody[k]?.count ?? 0));
   }
 
   function stripMetadata(hex) {
@@ -471,8 +511,12 @@
     const start = bytes.length - 2 - len;
     if (start <= 0) return { body: hex, hidden: false };
     if (cborEnd(bytes, start) !== bytes.length - 2) return { body: hex, hidden: false };
-    if (jumpsInto(bytes, start)) return { body: hex, hidden: true };
-    return { body: '0x' + bytesToHex(bytes.subarray(0, start)), hidden: false };
+
+    const trimmed = '0x' + bytesToHex(bytes.subarray(0, start));
+    const reach = trailerReach(bytes, start);
+    if (reach === 'reachable') return { body: hex, hidden: true };
+    if (reach === 'unprovable' && hidesDanger(hex, trimmed)) return { body: hex, hidden: false };
+    return { body: trimmed, hidden: false };
   }
 
   function scanOpcodes(hex) {
@@ -793,7 +837,7 @@
     ASSESS_SELECTOR, DAILY_LIMIT_SELECTOR, PAID_TOPIC0, GUARD_VERDICT,
     AMOUNT_THRESHOLD, DECISION,
     hexToBytes, bytesToHex, keccak256, keccak256Text, toChecksumAddress, parseAddress,
-    cborEnd, jumpsInto, stripMetadata, bytecodeVerdict,
+    cborEnd, trailerReach, stripMetadata, bytecodeVerdict,
     checkReputation, behaviorVerdict, decide,
     rpc, getCode, decodeAssess, assessOnChain, dailyLimit, timesPaid, toBaseUnits, check,
   };

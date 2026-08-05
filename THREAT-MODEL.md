@@ -100,12 +100,17 @@ treasury holds the funds and approves the guard; the agent is a different key
 holding only enough to pay gas:
 
 ```
-treasury   86.00 USDC, signs nothing after its one approve
-agent       2.96 USDC, pays gas, calls guardedPay
+treasury   holds the funds, signs nothing after its one approve
+agent      holds a gas float, pays gas, calls guardedPay
 ```
 
-The hot key a prompt injection can actually reach now holds about 3% of the
-money. That ratio is the bound. No redeploy was needed, because `setTreasury` and
+These were 86.00 and 2.96 USDC when this was written, and they move every time a
+demo runs, so the figures are not the claim - the ratio is. `npm run one-pot`
+prints both live, and `treasury()` on the deployed guard is the address that has
+to not equal the agent's.
+
+The hot key a prompt injection can actually reach holds roughly 3% of the money.
+That ratio is the bound. No redeploy was needed, because `setTreasury` and
 `setAgent` are independent on the deployed contract, and `npm run rotate-keys`
 does the split. It refuses to repoint the treasury until that treasury has
 approved the guard, so there's never a window where the guard can't pull.

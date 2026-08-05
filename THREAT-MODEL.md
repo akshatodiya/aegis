@@ -161,9 +161,16 @@ imprecision runs both ways and the two directions aren't equally acceptable:
 
 - *Over-flagging:* an opcode being present doesn't mean it's reachable. That's
   deliberate, and the LLM second pass is there to clear the false alarms.
-- *Under-flagging:* a jump target computed at runtime (push plus arithmetic)
-  instead of pushed as a constant can still hide from the reachability check
-  below. Known gap, not a solved problem.
+- *Under-flagging:* the lane reads the recipient's own code and nothing further,
+  so logic sitting behind a `DELEGATECALL` is reported as a proxy rather than
+  analysed. That one is open.
+
+  The metadata trim used to be listed here too, as a jump target "computed at
+  runtime" getting past the reachability check. It isn't a gap any more, and the
+  wording was wrong twice over - the bypass needed no runtime anything, and it is
+  now closed by requiring proof of unreachability rather than by looking harder
+  for a way in. The three rounds it took are under "Found and fixed" below,
+  because the shape of that mistake is more useful than the fix.
 
 **6. One of the three lanes is still a mock.** These used to be described as a
 pair, which blurred two different things:
@@ -265,6 +272,20 @@ a copy: the artifact anyone can actually audit is the file in this repository,
 and `test/web-check.test.mjs` is what keeps that file honest by running its lane
 code and `src/lanes/bytecode.js` over the same bytecodes and failing if they
 disagree.
+
+That last sentence was stated here as an unconditional guarantee, and it is not
+one. The suite compares the two copies over a fixed list of bytecodes, so it is
+exactly as wide as that list, and the list is written by the same person making
+the change. It failed at that once, and it is worth being specific about how:
+the metadata-trim fix below landed in `src/lanes/bytecode.js` and never reached
+the page, and for three commits the parity suite passed while the page carried
+the superseded check - because every fixture in the list predated the bypass and
+the two copies genuinely did agree on all of them. The public page scored a
+contract `LOW`/0 that the engine scored `HIGH`/60. The fixture that fails is in
+the list now, along with a check that pins the expected verdict outright rather
+than only comparing the two, so a shared blind spot cannot make them agree and be
+wrong together. The general point stands: a parity test bounds drift to inputs
+someone thought of.
 
 **10. The seller writes the sales copy, and we show it.** Over the per-payment
 cap the x402 rail stops and asks a human, and that prompt now carries the resource
@@ -439,10 +460,22 @@ the cost at **1.6% of honest builds**, which are read as flagged code they are
 not. That is a false alarm, and false alarms are the direction this lane has
 always said it would fail in.
 
-Three rounds of the same bug is itself the finding. Each fix was correct about
-the example in front of it and wrong about the class, and the thing that finally
-worked was not a better list of what an attacker might do - it was giving up on
-enumerating them and requiring proof of the property we actually wanted.
+There is a fourth act, and it is the least flattering one. That fix went into
+`src/lanes/bytecode.js` and stopped there. `web/check.html` carries its own copy
+of the lane, because it has to run from a `file://` url with no build step, and
+the copy kept the superseded check for three commits - during which the page
+anyone was invited to open scored the crafted contract `LOW`/0, with "no known
+danger opcodes", while the engine scored the same bytes `HIGH`/60. The parity
+suite that exists precisely to catch this passed the whole time, because its
+corpus covered rounds one and two and nobody extended it for round three.
+
+So the honest version of the lesson is not "requiring proof beats enumerating
+attacks", which is the flattering half. It is that a fix has to reach every copy
+of the thing it fixes, and a test that compares two copies only bounds the drift
+someone remembered to write down. Three rounds of the same bug is itself the
+finding. Each fix was correct about the example in front of it and wrong about
+the class, and the fourth round was correct about the class and wrong about how
+many places the class lived in.
 
 ### The behavior lane could be bought for a dollar
 

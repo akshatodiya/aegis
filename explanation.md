@@ -28,9 +28,11 @@ There are three different things in this system and it's easy to confuse them.
    bytecode and says "is this malicious?". It never holds a wallet, never spends,
    never signs anything. It's a part of the firewall's brain.
 
-3. **The guard** - the Solidity contract `contracts/AegisGuard.sol`, deployed on
-   Sepolia. Its job is to *enforce and remember*. It physically holds the gate on
-   the money, because the treasury only ever approved this contract to move funds.
+3. **The guard** - the Solidity contract `contracts/AegisGuard.sol`, deployed and
+   verified on Arc (it was Sepolia when this was written; the source is
+   unchanged). Its job is to *enforce and remember*. It physically holds the gate
+   on the money, because the treasury only ever approved this contract to move
+   funds.
 
 Analogy: the agent is an employee with a company card; the LLM is the bank's
 fraud analyst who inspects a shady vendor; the guard is the bank rule that the
@@ -170,7 +172,7 @@ Two honest notes (say these out loud, they read as maturity):
   production the owner would be a separate signer / multisig with a timelock.
 - Allowlisting trusts the address's *controller*, not the exact bytecode we
   vetted. A metamorphic redeploy can't swap code under an allowlisted address
-  (dead since EIP-6780 on post-Dencun Sepolia), but an upgradeable proxy keeps the
+  (dead since EIP-6780, on any post-Dencun chain), but an upgradeable proxy keeps the
   same address and can change its behavior after vetting. That's inherent to any
   allowlist - re-vet contracts you don't control.
 
@@ -202,6 +204,11 @@ allow direction is the one that grants trust, which is exactly why it's gated
 behind an owner yes (see "Block vs allow" above).
 
 ## File map
+
+Only the files this walk-through covers, which is the treasury rail. The x402
+rail (`src/x402/`), the on-chain refusal log (`src/audit.js`,
+`contracts/AegisAuditLog.sol`), the behavior and reputation lanes and the shared
+refusal vocabulary all came later and are mapped in [README.md](README.md).
 
 - `contracts/AegisGuard.sol` - the guard contract (assess, guardedPay, setters).
 - `contracts/HoneypotVault.sol` - the demo villain (Parity-freeze + tx.origin).

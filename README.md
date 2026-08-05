@@ -192,9 +192,10 @@ bytes become spaces (an ANSI escape can repaint a terminal, a carriage return ca
 overwrite the line above it), every Unicode format character is dropped - by
 property rather than by a list, because the list this started as missed U+061C and
 the tag block that ascii-smuggling payloads are written in - whitespace collapses
-so the seller only ever gets one line, and the length is capped. It is quoted, attributed, and read by no check. It also never reaches a
-refusal `reason`, because reasons are what `AegisAuditLog` writes on-chain and a
-merchant does not get to choose the wording of our receipts.
+so the seller only ever gets one line, and the length is capped. It is quoted,
+attributed, and read by no check. It also never reaches a refusal `reason`,
+because reasons are what `AegisAuditLog` writes on-chain and a merchant does not
+get to choose the wording of our receipts.
 
 Defanging the formatting is not the same as defanging the meaning. A description
 can still be an outright lie, and the demo ships one that is: the merchant that
@@ -628,55 +629,74 @@ drop-in that quietly loses its teeth.
 npm test
 ```
 
-187 cases, no fork / no testnet / no keys. 155 of them need no node at all; only the
-two contract suites (22 for the guard, 10 for the audit log) need `anvil`, and they look in `~/.foundry/bin` as well as on
-your PATH, because `foundryup` only wires that directory into interactive shell profiles, so
-a CI runner or a plain `sh -c` can have foundry installed and still not see it. The guard suite spins up a local `anvil`
-node, deploys a mock USDC + the guard + the honeypot, and drives every policy path
-through viem (allowed pay, non-agent rejected, denylist, unvetted contract,
-codehash kill-switch, `REVIEW -> BLOCK`, allowlisting `REVIEW -> PAY`, daily-limit,
-JIT-float-draws-on-the-daily-limit, owner-only setters). It also pins the two
-things the operator-facing kill switch rests on: that revoking a live agent stops
-the payment that worked a moment ago and stops it *before* policy is evaluated,
-so a recipient the guard still calls clear is refused anyway; and that
-`setDailyLimit(0)` removes the cap rather than freezing spending, which is the
-opposite of what someone reaching for it mid-incident would expect. The x402 suite runs the
-signer, the fetch wrapper, and a real localhost HTTP merchant offline (round-trip
-settles, `402` shape, replay, tampered signature, bait-and-switch, over-cap
-ASK_HUMAN, human-yes-does-not-bypass-the-signer). It also covers the text the
-seller writes into that human prompt, from both the places the spec puts it: that
-it arrives, that an approval prompt that throws is a refusal rather than a crash,
-and that a description made of escape sequences and bidi overrides cannot repaint
-the terminal it is printed in, forge a second line, or turn up in the reason
-string that the audit log writes on-chain. One of those tests carries an entire
-sentence written in invisible tag characters and requires it to be gone, and
-another walks all twelve of Unicode's bidi controls rather than the eleven anybody
-lists from memory. The bytecode suite needs no node
-at all: it pins the metadata trim against a recipient that fakes its own trailer to
-hide reachable code from the scan, and checks genuine solc metadata still gets cut
-at exactly the right boundary. That includes a recipient whose jump target is
-added together from two constants rather than pushed as one, which is the third
-distinct bypass this one check has had and the one that made it stop enumerating
-attacks and start requiring proof - the story is in `THREAT-MODEL.md`. The behavior suite covers both halves of that lane -
-the pure verdict, including the dust-payment case below, and the `getLogs` read
-itself against a stub JSON-RPC server, so the block window, the recipient topic
-filter and the 6-decimal conversion are pinned rather than only ever exercised in a
-live demo. The audit-log suites cover both ends of the receipt: on-chain, that a
-stranger can't write, that a `PAY` can't be recorded at all, that nothing lands
-without a reason, and that a merchant can't choose how large an entry is; offline,
-that the logger survives the failure path it lives on - one entry per refusal even
-when both hooks report it, a write that fails recorded rather than thrown, and the
-refusal never waiting on the receipt. The web suite exists because `web/check.html`
-carries a *copy* of the lane code (a browser can't import the modules), and a copy
-agrees with the original on the day it is written and then quietly stops: it lifts
-the page's script block out of the html, runs it and `src/lanes/bytecode.js` over
-the same crafted bytecodes, and fails unless the two return identical objects - and
-then, in a child process with no `claude` on its PATH, checks the page reaches the
-same verdict `aegisCheck` does. The hand-rolled parts get the same treatment
-against viem (keccak-256 over 300 lengths, the EIP-55 checksum, the function
-selectors, the `assess` return decoding), and the page's own UI is driven headlessly
-over a fake DOM and a fake chain, which is how a stale-read race that could leave
-one address's answer under another address's name got caught.
+187 cases, no fork / no testnet / no keys. 155 of them need no node at all; only
+the two contract suites (22 for the guard, 10 for the audit log) need `anvil`, and
+they look in `~/.foundry/bin` as well as on your PATH, because `foundryup` only
+wires that directory into interactive shell profiles, so a CI runner or a plain
+`sh -c` can have foundry installed and still not see it.
+
+**The guard suite** spins up a local `anvil` node, deploys a mock USDC + the guard
++ the honeypot, and drives every policy path through viem (allowed pay, non-agent
+rejected, denylist, unvetted contract, codehash kill-switch, `REVIEW -> BLOCK`,
+allowlisting `REVIEW -> PAY`, daily-limit, JIT-float-draws-on-the-daily-limit,
+owner-only setters). It also pins the two things the operator-facing kill switch
+rests on: that revoking a live agent stops the payment that worked a moment ago
+and stops it *before* policy is evaluated, so a recipient the guard still calls
+clear is refused anyway; and that `setDailyLimit(0)` removes the cap rather than
+freezing spending, which is the opposite of what someone reaching for it
+mid-incident would expect.
+
+**The x402 suite** runs the signer, the fetch wrapper, and a real localhost HTTP
+merchant offline (round-trip settles, `402` shape, replay, tampered signature,
+bait-and-switch, over-cap ASK_HUMAN, human-yes-does-not-bypass-the-signer). It
+also covers the text the seller writes into that human prompt, from both the
+places the spec puts it: that it arrives, that an approval prompt that throws is a
+refusal rather than a crash, and that a description made of escape sequences and
+bidi overrides cannot repaint the terminal it is printed in, forge a second line,
+or turn up in the reason string that the audit log writes on-chain. One of those
+tests carries an entire sentence written in invisible tag characters and requires
+it to be gone, and another walks all twelve of Unicode's bidi controls rather than
+the eleven anybody lists from memory.
+
+**The bytecode suite** needs no node at all. It pins the metadata trim against a
+recipient that fakes its own trailer to hide reachable code from the scan, and
+checks genuine solc metadata still gets cut at exactly the right boundary. That
+includes a recipient whose jump target is added together from two constants rather
+than pushed as one, which is the third distinct bypass this one check has had and
+the one that made it stop enumerating attacks and start requiring proof - the
+story is in `THREAT-MODEL.md`.
+
+**The behavior suite** covers both halves of that lane: the pure verdict,
+including the dust-payment case below, and the `getLogs` read itself against a
+stub JSON-RPC server, so the block window, the recipient topic filter and the
+6-decimal conversion are pinned rather than only ever exercised in a live demo.
+
+**The audit-log suites** cover both ends of the receipt. On-chain: that a stranger
+can't write, that a `PAY` can't be recorded at all, that nothing lands without a
+reason, and that a merchant can't choose how large an entry is. Offline: that the
+logger survives the failure path it lives on - one entry per refusal even when
+both hooks report it, a write that fails recorded rather than thrown, and the
+refusal never waiting on the receipt.
+
+**The web suite** exists because `web/check.html` carries a *copy* of the lane
+code (a browser can't import the modules), and a copy agrees with the original on
+the day it is written and then quietly stops. It lifts the page's script block out
+of the html, runs it and `src/lanes/bytecode.js` over the same crafted bytecodes,
+and fails unless the two return identical objects - and then, in a child process
+with no `claude` on its PATH, checks the page reaches the same verdict
+`aegisCheck` does. The hand-rolled parts get the same treatment against viem
+(keccak-256 over 300 lengths, the EIP-55 checksum, the function selectors, the
+`assess` return decoding), and the page's own UI is driven headlessly over a fake
+DOM and a fake chain, which is how a stale-read race that could leave one
+address's answer under another address's name got caught.
+
+That last suite is also where this project found out what a parity test is not. It
+bounds drift to the bytecodes somebody thought to put in it, and for three commits
+it passed while the page ran a superseded copy of the metadata trim - scoring a
+crafted contract `LOW`/0 that the engine scored `HIGH`/60, on the public page
+linked at the top of this README. The case that fails is in the corpus now, next
+to a check that asserts the expected verdict outright instead of only comparing
+the two copies, so they cannot agree with each other and be wrong together.
 
 ## Also runs on Sepolia
 

@@ -409,7 +409,9 @@ already has a branch for that: with the LLM unreachable it falls back to the
 deterministic verdict. So the page is the engine in a mode it really has, not a
 simplified retelling of it. `test/web-check.test.mjs` is what keeps that true - it
 lifts the page's script block out of the html and fails if it and
-`src/lanes/bytecode.js` ever return different objects for the same code.
+`src/lanes/bytecode.js` return different objects for any bytecode in its corpus.
+That corpus is the boundary of the guarantee, and it has been too small once
+already; the Tests section below says exactly how.
 
 ### Killing a whole family with one write
 
@@ -552,7 +554,7 @@ try {
 }
 ```
 
-Three properties are worth knowing, because they are what make the code worth
+Four properties are worth knowing, because they are what make the code worth
 having rather than a second thing to keep in sync:
 
 - **A code never decides anything.** It is attached on the same line that raised

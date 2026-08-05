@@ -65,6 +65,24 @@ async function main() {
     address: usdc, abi: erc20Abi, functionName: 'allowance', args: [account.address, guard],
   });
   console.log(`\n  allowance is now ${formatUnits(allowance, 6)} USDC.`);
+
+  // Only now is it safe to say that. This is the single most destructive piece
+  // of advice in the repo: the treasury key is the ONLY thing that can grant
+  // this allowance, and the whole point of the script is that it gets deleted
+  // afterwards. Telling someone to delete it after a mined-but-reverted approve
+  // - or after approving from a wallet whose allowance did not actually move -
+  // ends with funds in a treasury the guard can never pull from and no key left
+  // to fix it. waitForTransactionReceipt resolves for a reverted transaction, so
+  // the read-back above is the check, not the receipt.
+  if (receipt.status !== 'success' || allowance < amount) {
+    console.error('\n  THE APPROVE DID NOT TAKE.');
+    console.error(`  wanted an allowance of at least ${formatUnits(amount, 6)} USDC, read back ${formatUnits(allowance, 6)}.`);
+    console.error('  KEEP TREASURY_PRIVATE_KEY in .env and run this again - it is the only key');
+    console.error('  that can approve the guard, and without the allowance the treasury rail');
+    console.error('  cannot pay at all.\n');
+    process.exit(1);
+  }
+
   console.log('  remove TREASURY_PRIVATE_KEY from .env now - the treasury is done signing.');
   console.log('  next: npm run rotate-keys   (then -- --execute)\n');
 }

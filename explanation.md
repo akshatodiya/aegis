@@ -1,4 +1,4 @@
-# Aegis - how it actually works 
+# Aegis - how it actually works
 
 > Written during the Sepolia build, kept because the walk-through of the moving
 > parts is still accurate. The live deployment is now Arc (chain 5042002), and
@@ -214,7 +214,7 @@ behind an owner yes (see "Block vs allow" above).
 - `src/guard.js` - talks to the contract: `assessOnChain`, `guardedPay`,
   `setupGuard`, the block bridge `recordVerdictOnChain`, the allow bridge
   `allowlistOnChain`, and the `needsVetting` state check.
-- `test/guard.test.mjs` - anvil-backed end-to-end tests (12 cases).
+- `test/guard.test.mjs` - anvil-backed end-to-end tests (22 cases).
 
 ## Pointing the agent at a recipient
 

@@ -157,7 +157,7 @@
   <h1>Check an address before you pay it.</h1>
   <p class="lead">This is the deterministic half of the Aegis engine, running <b>in your browser</b>
     against Arc testnet's public RPC. No backend, no key, no account, and nothing leaves this page
-    but the address itself, in read-only calls to a public gateway. It also asks the deployed
+    but the address and the amount you typed, in read-only calls to a public gateway. It also asks the deployed
     <b>AegisGuard</b> what it would do, which is the answer that actually binds.</p>
 
   <div class="toplinks">
@@ -213,10 +213,13 @@
         could tell. That is true of any off-chain analyzer, including the one in the repo, and it is
         the clearest reason the on-chain layer exists: <code>guardedPay</code> reads the recipient's
         code from chain state inside the transaction, with no RPC in the loop to lie to it.</li>
-      <li><b>The lane code on this page is the code in the repo.</b>
-        <code>test/web-check.test.mjs</code> lifts this file's script block out, runs it and
-        <code>src/lanes/bytecode.js</code> over the same bytecodes, and fails if the two ever
-        disagree. Copy-paste that drifts is worse than no copy at all, so it is pinned.</li>
+      <li><b>The lane code on this page is a copy of the code in the repo.</b>
+        <code>test/web-check.test.mjs</code> lifts this file's script block out and runs it and
+        <code>src/lanes/bytecode.js</code> over the same bytecodes, failing if the two disagree on
+        any of them. That is a real check and it is narrower than it sounds: it is only as wide as
+        the list of bytecodes it tries. This page once carried a superseded copy of the
+        metadata-trim check for three commits while every fixture in that list still agreed, and
+        the audit that caught it added the case that now fails.</li>
     </ul>
   </section>
 

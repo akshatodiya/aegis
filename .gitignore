@@ -1,5 +1,7 @@
 # secrets, never commit
 .env
+.env.local
+.env.*.local
 
 # deps
 node_modules/
@@ -14,3 +16,6 @@ contracts/out/
 
 # internal build brief, not part of the shipped project
 prompt.md
+
+# personal recording notes, not part of the shipped project
+video-script.txt

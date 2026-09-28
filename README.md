@@ -748,6 +748,10 @@ is what's deployed on Arc.
 Full write-up, including the designs that were attacked and dropped on purpose:
 [`THREAT-MODEL.md`](THREAT-MODEL.md).
 
+Where these gaps go next, and which parts of this build should *not* be carried
+forward now that Circle's Agent Stack ships spend policies natively:
+[`ROADMAP.md`](ROADMAP.md).
+
 ## Built with
 
 Node.js, [viem](https://viem.sh), solc `0.8.28`, Foundry (anvil for tests), and

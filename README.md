@@ -62,7 +62,7 @@ Four receipts a judge can open:
   gas: it reverted on `guardedPay`'s first line, before policy was read at all.
 
 And one thing to run rather than read:
-**[check any address yourself](https://anon1one.github.io/aegis/web/check.html)**.
+**[check any address yourself](https://akshatodiya.github.io/aegis/web/check.html)**.
 `web/check.html` is one static file that runs the deterministic lanes in your
 browser against Arc's public RPC, and reads the deployed guard's own `assess`
 next to its answer. No clone, no key, no backend, and nothing loaded from a CDN.

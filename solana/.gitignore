@@ -1,0 +1,18 @@
+.anchor
+.DS_Store
+target
+**/*.rs.bk
+node_modules
+test-ledger
+.yarn
+.surfpool
+.env
+.env.*
+# fresh devnet keypairs; never commit
+keys/
+
+# private notes, kept local only
+prompt.md
+research/
+docs/demo-runbook.md
+docs/demo-day-script.md

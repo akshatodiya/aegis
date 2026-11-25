@@ -1,0 +1,50 @@
+[toolchain]
+package_manager = "yarn"
+# Anchor 1.2 builds SBPF v3; the 3.1 validator can't load it.
+solana_version = "4.1.2"
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+aegis_guard = "CTvcbeF4MziHgc1BsiAQY9fZkub9hYFS8CJ336V1QJG6"
+
+[programs.devnet]
+aegis_guard = "CTvcbeF4MziHgc1BsiAQY9fZkub9hYFS8CJ336V1QJG6"
+
+[provider]
+cluster = "localnet"
+wallet = "keys/deployer.json"
+
+[scripts]
+# --sort: aegis_guard.ts initializes the global config before lanes.ts runs.
+test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 --sort \"tests/**/*.ts\""
+
+[test]
+# deploy with --upgradeable-program so provider.wallet is the upgrade authority
+# and the gated `initialize` can pass.
+upgradeable = true
+
+# A classic 6-decimal mint at the devnet USDC address, so the pinned constant
+# works in tests. The authority is a localnet-only fixture key.
+[[test.validator.mints]]
+address = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+decimals = 6
+mint_authority = "5oogLUgv5P9heyMeWmoxDDh9EhwygUG8hPVupzzVwam2"
+freeze_authority = "5oogLUgv5P9heyMeWmoxDDh9EhwygUG8hPVupzzVwam2"
+
+# Two copies of the guard's own .so under other ids, so the lane tests have a
+# real upgradeable program (authority = provider wallet) and a real immutable
+# one to own accounts. Nothing ever calls them.
+[[test.genesis]]
+address = "5Q4Gk1PaDS9y516fc7C6eYjYLB5MZAn6pj2Cn7V89CdQ"
+program = "target/deploy/aegis_guard.so"
+upgradeable = true
+
+[[test.genesis]]
+address = "9MAnc4HPup3khi7dVf3ShmQYVn7Pk5XBmzRANkRptEkJ"
+program = "target/deploy/aegis_guard.so"
+upgradeable = false
+
+[hooks]

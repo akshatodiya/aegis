@@ -1,0 +1,32 @@
+{
+  "name": "aegis-solana",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "sh scripts/with-toolchain.sh anchor build",
+    "test": "sh scripts/with-toolchain.sh anchor test --validator legacy",
+    "test:unit": "ts-mocha -p ./tsconfig.json -t 60000 'tests/unit/**/*.test.ts'",
+    "demo": "sh scripts/with-toolchain.sh node -r ts-node/register/transpile-only scripts/demo.ts",
+    "demo:setup": "sh scripts/with-toolchain.sh node -r ts-node/register/transpile-only scripts/demo-setup.ts",
+    "demo:restore-agent": "sh scripts/with-toolchain.sh node -r ts-node/register/transpile-only scripts/demo-restore-agent.ts",
+    "typecheck": "tsc --noEmit -p .",
+    "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
+    "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check"
+  },
+  "dependencies": {
+    "@anchor-lang/core": "^1.2.0",
+    "@solana/spl-token": "^0.4.13",
+    "@solana/web3.js": "^1.99.0"
+  },
+  "devDependencies": {
+    "@types/bn.js": "^5.1.0",
+    "@types/chai": "^4.3.0",
+    "@types/mocha": "^10",
+    "chai": "^4.3.4",
+    "mocha": "^11",
+    "prettier": "^2.6.2",
+    "ts-mocha": "^11",
+    "ts-node": "^10",
+    "typescript": "^5.7.3"
+  }
+}
